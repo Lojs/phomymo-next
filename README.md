@@ -5,6 +5,19 @@ codes, shapes, multi-label rolls and CSV/template batch printing — printed
 straight from the browser over Bluetooth or USB. A React + TypeScript
 rewrite with an Arabic/English interface.
 
+![Phomymo Next — the label designer, editing a 60×40 mm product label](docs/screenshots/desktop-en.png)
+
+<table>
+<tr>
+<td width="70%"><img src="docs/screenshots/desktop-ar.png" alt="Arabic RTL interface"></td>
+<td width="30%"><img src="docs/screenshots/mobile.png" alt="Mobile layout"></td>
+</tr>
+<tr>
+<td align="center"><sub>The same app in Arabic — full RTL layout</sub></td>
+<td align="center"><sub>Phone layout</sub></td>
+</tr>
+</table>
+
 ## Credits and provenance
 
 **This project is inspired by and derived from
