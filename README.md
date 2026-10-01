@@ -7,16 +7,17 @@ rewrite with an Arabic/English interface.
 
 ![Phomymo Next — the label designer, editing a 60×40 mm product label](docs/screenshots/desktop-en.png)
 
-<table>
-<tr>
-<td width="70%"><img src="docs/screenshots/desktop-ar.png" alt="Arabic RTL interface"></td>
-<td width="30%"><img src="docs/screenshots/mobile.png" alt="Mobile layout"></td>
-</tr>
-<tr>
-<td align="center"><sub>The same app in Arabic — full RTL layout</sub></td>
-<td align="center"><sub>Phone layout</sub></td>
-</tr>
-</table>
+<p align="center"><sub><i>Phomymo Next editing a 60×40 mm product label</i></sub></p>
+
+![The same app in Arabic, with a full right-to-left layout](docs/screenshots/desktop-ar.png)
+
+<p align="center"><sub><i>The same app in Arabic — the whole interface mirrors to RTL</i></sub></p>
+
+<p align="center">
+  <img src="docs/screenshots/mobile.png" alt="Phone layout" width="260">
+  <br>
+  <sub><i>Phone layout — the inspector becomes a bottom sheet</i></sub>
+</p>
 
 ## Credits and provenance
 
