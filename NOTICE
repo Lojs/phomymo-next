@@ -1,0 +1,21 @@
+Attribution and provenance
+==========================
+
+This project is a derivative work. It was rebuilt from
+transcriptionstream/phomymo (https://github.com/transcriptionstream/phomymo),
+whose README states an MIT License but which ships no LICENSE file.
+
+The upstream project established the hard parts that this rewrite builds on:
+the Phomemo print protocols, the raster and dithering pipeline, and the
+printer definitions. See the "Credits and provenance" section of README.md for
+a file-level breakdown of what was ported and what is new.
+
+Protocol research in the original project draws on:
+
+- vivier/phomemo-tools — CUPS driver with reverse-engineered protocol
+- yaddran/thermal-print — printer status query commands
+- ooki1jp — M04AS/M04S protocol reverse-engineering
+
+The MIT licence in LICENSE applies to this project. The upstream project's
+own licence terms are its author's to state; this notice exists so the
+provenance is unambiguous either way.

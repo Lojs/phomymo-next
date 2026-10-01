@@ -19,13 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-Attribution and provenance (not part of the licence terms above):
-
-This project is a derivative work. It was rebuilt from
-transcriptionstream/phomymo (https://github.com/transcriptionstream/phomymo),
-whose README states an MIT License but which ships no LICENSE file.
-Protocol research in the original project draws on vivier/phomemo-tools,
-yaddran/thermal-print, and reverse-engineering by ooki1jp.

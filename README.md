@@ -29,9 +29,10 @@ the Arabic/English interface, orientation support, and the Docker/HTTPS
 packaging.
 
 The original project's README states an MIT licence but ships no `LICENSE`
-file; see [LICENSE](LICENSE) for the full text and further attribution
-(the original's protocol research draws on `vivier/phomemo-tools`,
-`yaddran/thermal-print`, and reverse-engineering by `ooki1jp`).
+file; see [LICENSE](LICENSE) for this project's licence and
+[NOTICE](NOTICE) for the full attribution, including the upstream's own
+protocol research (`vivier/phomemo-tools`, `yaddran/thermal-print`, and
+reverse-engineering by `ooki1jp`).
 
 If you want the upstream project itself, use
 [transcriptionstream/phomymo](https://github.com/transcriptionstream/phomymo).
