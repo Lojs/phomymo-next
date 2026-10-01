@@ -54,10 +54,18 @@ export function Stage() {
   const cssH = (layout.height + PAD * 2) * zoom;
 
   // ---- fit to screen ------------------------------------------------------------------
+  // The canvas is (layout + 2*PAD) * zoom, so PAD has to be in the divisor: fitting against
+  // layout.width alone overshoots by 2*PAD/width (measured on a 40x30mm label in a 414x524
+  // stage: it chose 1.10 where 0.60 fits, leaving a 616px canvas in a 414px box — a 202px
+  // horizontal scrollbar at the moment you asked it to fit). The 56/96 are the breathing room
+  // around the canvas, so they stay outside the division.
   const doFit = useCallback(() => {
     const el = scroller.current;
     if (!el) return;
-    const z = Math.min((el.clientWidth - 56) / layout.width, (el.clientHeight - 96) / layout.height);
+    const z = Math.min(
+      (el.clientWidth - 56) / (layout.width + PAD * 2),
+      (el.clientHeight - 96) / (layout.height + PAD * 2),
+    );
     useStore.getState().setZoom(Math.max(0.25, Math.min(3, Math.floor(z * 20) / 20)), true);
   }, [layout.width, layout.height]);
 
