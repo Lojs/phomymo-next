@@ -1,10 +1,40 @@
-# Phomymo
+# Phomymo Next
 
 A label designer for Phomemo thermal printers — text, images, barcodes, QR
 codes, shapes, multi-label rolls and CSV/template batch printing — printed
-straight from the browser over Bluetooth or USB. Rebuilt from
-[transcriptionstream/phomymo](https://github.com/transcriptionstream/phomymo)
-as a new React + TypeScript app, with an Arabic/English interface.
+straight from the browser over Bluetooth or USB. A React + TypeScript
+rewrite with an Arabic/English interface.
+
+## Credits and provenance
+
+**This project is inspired by and derived from
+[transcriptionstream/phomymo](https://github.com/transcriptionstream/phomymo)**
+— an excellent browser-based label designer written in plain JavaScript. The
+original established the hard parts: the Phomemo print protocols, the raster
+and dithering pipeline, and the printer definitions. Phomymo Next rebuilds
+that work as a typed, component-based application.
+
+What came from the original:
+
+- `src/core/protocols/` and `src/core/printers/` — the print protocol and
+  printer-definition logic, ported to TypeScript.
+- `src/transport/` — Web Bluetooth and WebUSB handling, ported.
+- `tests/legacy/` — a frozen copy of the original implementation, kept so the
+  golden tests can assert that this rewrite produces byte-identical output.
+- `tests/golden-*.test.ts` — 193 of the 255 tests compare against that legacy
+  code directly.
+
+What is new here: the React component architecture, the TypeScript data model,
+the Arabic/English interface, orientation support, and the Docker/HTTPS
+packaging.
+
+The original project's README states an MIT licence but ships no `LICENSE`
+file; see [LICENSE](LICENSE) for the full text and further attribution
+(the original's protocol research draws on `vivier/phomemo-tools`,
+`yaddran/thermal-print`, and reverse-engineering by `ooki1jp`).
+
+If you want the upstream project itself, use
+[transcriptionstream/phomymo](https://github.com/transcriptionstream/phomymo).
 
 ## Requirements
 

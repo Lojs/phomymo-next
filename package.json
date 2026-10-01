@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Label designer for Phomemo thermal printers — rebuilt with React, TypeScript and Docker.",
+  "description": "Label designer for Phomemo thermal printers — a React + TypeScript rewrite inspired by transcriptionstream/phomymo.",
   "scripts": {
     "dev": "vite --host",
     "build": "tsc -b && vite build",
