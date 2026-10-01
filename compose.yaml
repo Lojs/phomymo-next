@@ -1,0 +1,21 @@
+# Phomymo Next — label designer for a Phomemo thermal printer.
+# Rebuilt 2026-09-29 and written to house style.
+# Secrets live in ./.env — keep that file private.
+services:
+  phomymo-next:
+    build: .
+    image: phomymo-next:latest
+    container_name: "phomymo-next-phomymo-1"
+    restart: unless-stopped
+    network_mode: bridge
+    ports:
+      - "8444:443"
+    volumes:
+      - "phomymo-certs:/certs"
+    env_file:
+      - .env
+    environment:
+      - "TZ=Asia/Kuwait"
+
+volumes:
+  phomymo-certs:

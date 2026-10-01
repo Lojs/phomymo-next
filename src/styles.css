@@ -1,0 +1,549 @@
+/*
+ * Phomymo — visual language
+ *
+ * A dark workshop, lit paper. The chrome (topbar, tool strip, inspector) is cool
+ * graphite so the label itself — drawn on canvas, always literal white — is the
+ * brightest thing on screen and reads as the physical object it represents.
+ * One ink-red accent, borrowed from thermal label stock, marks anything
+ * actionable. Numbers (mm, bytes, percentages) are set in mono so they read as
+ * measurements, not prose.
+ *
+ * Contrast: every text/surface pair below was measured, not eyeballed — body
+ * text at 14.1:1, secondary at 6.6:1, the accent at 4.7:1 on raised surfaces.
+ * The accent is deliberately split in two: --accent is bright enough to read
+ * *on* dark chrome, --accent-solid is dark enough to carry white text *on* it.
+ * A single token cannot satisfy both.
+ *
+ * The label paper is NOT styled here. paintLabel() fills with the literal
+ * 'white' and paintStage() with '#fff', so the artwork on screen, the print
+ * preview and the 1-bpp raster sent to the printer are all independent of this
+ * file — a dark UI cannot change what comes out of the printer.
+ */
+
+:root {
+  /* A deliberately mid-dark graphite, not near-black: the surfaces sit around 0.02 relative
+     luminance rather than 0.01, which keeps the chrome from reading as a black hole on an
+     uncalibrated or glossy panel while still leaving the white label as the brightest thing
+     on screen. Text contrast is unaffected (body 13:1, secondary 6.6:1). */
+  --bg: #1b1f26;
+  --chrome: #232830;
+  --raised: #2d333d;
+  --raised-hi: #373e4a;
+  --ink: #eef0f2;
+  --ink-soft: #a7aeb8;
+  --line: #3a414c;
+  --line-hi: #4a5260;
+  --mat: #1e222a;
+  --mat-deep: #2a303a;
+  --accent: #60a5fa;
+  --accent-solid: #2563eb;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(96, 165, 250, 0.24);
+  --accent-on-soft: #bcd7fd;
+  --danger: #ff8080;
+  --danger-soft: rgba(255, 128, 128, 0.15);
+  --ok: #4ade80;
+  --toast-error-bg: #cf3f42;
+  --toast-success-bg: #2f7d5b;
+  --focus: #93c5fd;
+  --radius-s: 7px;
+  --radius-m: 11px;
+  --radius-l: 16px;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --font-ui: Inter, 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Roboto Mono', ui-monospace, monospace;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { background: none; border: none; cursor: pointer; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* Background only — never a text colour. Forcing white here made the in-place text editor
+   unreadable: it selects its whole value on focus, and that text sits on the white label, so
+   white-on-highlight vanished. The element's own colour is always the right one. */
+::selection { background: rgba(96, 165, 250, 0.42); }
+
+/* Thin dark scrollbars — the default chrome-grey bars cut across every panel. */
+* { scrollbar-width: thin; scrollbar-color: var(--line-hi) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--line-hi); border-radius: 8px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: #4a515c; background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+.app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+/* ---------------------------------------------------------------- topbar */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+  z-index: 20;
+}
+.brand { display: flex; align-items: center; gap: 9px; margin-inline-end: 8px; }
+.brand-mark {
+  width: 22px; height: 22px; border-radius: 6px;
+  background: linear-gradient(155deg, var(--accent), var(--accent-solid));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22), 0 0 14px rgba(96, 165, 250, 0.38);
+  flex: none;
+}
+.brand-name { font-weight: 650; letter-spacing: -0.01em; font-size: 15px; }
+
+.doc {
+  display: flex; align-items: center; gap: 8px;
+  /* 4px, not 6: the taller .doc-name line box below adds ~7.6px, so this claws most of it back.
+     The topbar's height comes from the 34px buttons either way, so .doc has room to breathe. */
+  padding: 4px 10px; border-radius: var(--radius-s);
+  color: var(--ink-soft); max-width: 220px;
+}
+.doc:hover { background: var(--raised); color: var(--ink); }
+/* `overflow: hidden` is here for the ellipsis, but it clips vertically too, and it clips at the
+   content box — whose height comes from `line-height: normal`. Arabic descenders (و, ن) and the
+   dot under ب reach below that box, so the name was being sliced flat along its baseline. A real
+   line-height gives the ink room; the horizontal truncation is unaffected. */
+.doc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; line-height: 1.75; }
+
+.topbar-group { display: flex; gap: 2px; }
+.topbar-spacer { flex: 1; }
+/* Copies sit next to Print: how many copies is part of pressing Print, not part of configuring the
+   printer, so it belongs within reach of the button it affects. */
+.topbar-copies { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-soft); font-size: 13px; }
+.topbar-copies .num input { text-align: center; padding-inline: 4px; }
+.lang-tag { font-family: var(--font-mono); font-size: 11px; }
+
+/* -------------------------------------------------------------- buttons */
+
+.btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 13px; border-radius: var(--radius-s);
+  font-size: 13.5px; font-weight: 560; white-space: nowrap;
+  transition: background-color .12s ease, color .12s ease, opacity .12s ease;
+}
+.btn-default { background: var(--raised); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+.btn-default:hover:not(:disabled) { background: var(--raised-hi); box-shadow: inset 0 0 0 1px var(--line-hi); }
+.btn-primary {
+  background: var(--accent-solid); color: var(--accent-ink);
+  /* Blue glow to match the accent — this was rgba(217,46,99,.35), a leftover from the pink theme,
+     which put a red halo around a blue button. */
+  box-shadow: 0 0 18px rgba(37, 99, 235, 0.5);
+}
+.btn-primary:hover:not(:disabled) { background: #3b82f6; }
+.btn-ghost { background: transparent; color: var(--ink-soft); }
+.btn-ghost:hover:not(:disabled) { background: var(--raised); color: var(--ink); }
+.btn-danger { color: var(--danger); }
+.btn-danger:hover:not(:disabled) { background: var(--danger-soft); }
+.btn-icon { padding: 8px; }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn.is-active, .btn.is-active:hover:not(:disabled) {
+  background: var(--accent-soft); color: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.5);
+}
+/*
+ * The `:hover` half of that selector is load-bearing, not decoration. `.btn-ghost:hover:not(:disabled)`
+ * is (0,3,0) and therefore outranks a plain `.btn.is-active` (0,2,0), so while the pointer was over
+ * an active button it lost its highlight and looked switched off. On a touchscreen the hover state
+ * sticks after the tap, so the highlight only appeared once you tapped somewhere else — which read
+ * as "the button doesn't update until I click away".
+ */
+
+/* ------------------------------------------------------------- connect */
+
+.menu-wrap { position: relative; }
+.conn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: var(--radius-s);
+  background: var(--raised); box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 13px; color: var(--ink-soft); max-width: 200px;
+}
+.conn:hover { box-shadow: inset 0 0 0 1px var(--line-hi); }
+.conn.is-on { color: var(--ink); }
+.conn.is-failed { color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
+.conn-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conn-batt { font-family: var(--font-mono); font-size: 11px; color: var(--ink-soft); }
+.led { width: 7px; height: 7px; border-radius: 50%; background: var(--line-hi); flex: none; }
+.conn.is-on .led { background: var(--ok); box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.16); }
+.conn.is-failed .led { background: var(--danger); box-shadow: 0 0 0 3px rgba(255, 107, 107, 0.16); }
+.conn:disabled { opacity: 0.75; }
+.conn:disabled .led { animation: conn-pulse 1s ease-in-out infinite; }
+@keyframes conn-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+.menu {
+  position: absolute; inset-inline-end: 0; top: calc(100% + 6px);
+  background: var(--raised); border-radius: var(--radius-m);
+  box-shadow: var(--shadow-2), inset 0 0 0 1px var(--line);
+  padding: 5px; min-width: 210px; z-index: 40;
+}
+.menu button {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 8px 10px; border-radius: var(--radius-s); font-size: 13.5px; text-align: start;
+}
+.menu button:hover { background: var(--raised-hi); }
+.menu-note { padding: 8px 10px; font-size: 12.5px; color: var(--ink-soft); max-width: 220px; }
+.menu-note-error { color: var(--danger); border-bottom: 1px solid var(--line); margin-bottom: 4px; padding-bottom: 10px; }
+.menu-tools { min-width: 160px; }
+/* 13 shapes as a single column would be a ~470px-tall menu that runs off a phone. Two columns keep
+   the labels (unlike an icon-only grid) while halving the height. */
+.menu-shapes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; min-width: 236px; }
+.menu-shapes button { padding: 7px 9px; font-size: 13px; }
+/* The insert-field / insert-date menus anchor under their own trigger rather than to the end of
+   the row, so the popup lines up with the button that opened it. */
+.menu-field { inset-inline-start: 0; inset-inline-end: auto; min-width: 170px; }
+
+/* -------------------------------------------------------------- layout */
+
+/*
+ * The tool strip runs along the TOP, spanning the full width, with the stage
+ * and inspector sharing the row beneath it. Grid rather than nested flex
+ * because the strip has to span both columns while the two panels keep
+ * independent scroll — one declaration per child buys that, and logical column
+ * numbering mirrors the whole arrangement automatically under RTL.
+ *
+ * minmax(0, ...) on both axes is load-bearing: grid items default to
+ * min-*: auto, which would let a wide canvas or a long inspector list push its
+ * track past the viewport and kill scrolling outright.
+ */
+.app-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 304px;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.app-stage { grid-column: 1; grid-row: 2; position: relative; min-width: 0; min-height: 0; }
+.app-panel {
+  grid-column: 2; grid-row: 2;
+  min-height: 0; overflow-y: auto;
+  background: var(--chrome); border-inline-start: 1px solid var(--line);
+}
+
+/* No overflow here on purpose. `overflow-x: auto` makes this row a scroll container, and a scroll
+   container can never let a child escape vertically — `overflow-y: visible` computes to `auto`, so
+   it has to be `hidden`, which silently swallowed the Shape submenu whole (it hangs 138px below
+   the row). Wrapping instead of scrolling means there is no clipping context left to fight. */
+.toolbox {
+  grid-column: 1 / -1; grid-row: 1;
+  display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 3px;
+  padding: 7px 14px;
+  background: var(--chrome); border-bottom: 1px solid var(--line);
+}
+.tool-wrap { position: relative; }
+.tool {
+  display: flex; flex-direction: row; align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: var(--radius-s); color: var(--ink-soft);
+  font-size: 12.5px; font-weight: 550; white-space: nowrap; position: relative;
+  transition: background-color .12s ease, color .12s ease;
+}
+.tool:hover { background: var(--raised); color: var(--ink); }
+/* Crisp icon, muted label — the tint stays reserved for hover/active so the
+   accent keeps meaning "this does something", rather than becoming wallpaper. */
+.tool svg { color: var(--ink); opacity: 0.85; }
+.tool:hover svg { color: var(--accent); opacity: 1; }
+.tool-badge {
+  position: absolute; top: 1px; inset-inline-end: 3px;
+  background: var(--accent-solid); color: #fff; font-style: normal;
+  font-size: 9.5px; font-family: var(--font-mono); line-height: 1;
+  border-radius: 8px; padding: 2px 5px;
+}
+
+/* ------------------------------------------------------------- panels */
+
+.panel-stack { padding: 6px 0 48px; }
+.section { border-bottom: 1px solid var(--line); padding: 16px 18px; }
+.section-head { display: flex; align-items: center; justify-content: space-between; margin-block-end: 12px; }
+.section-head h3 {
+  margin: 0; font-size: 11.5px; font-weight: 620; color: var(--ink-soft);
+  text-transform: uppercase; letter-spacing: 0.07em;
+}
+.section-body { display: flex; flex-direction: column; gap: 13px; }
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field-inline { flex-direction: row; align-items: center; justify-content: space-between; }
+.field-label { font-size: 12px; color: var(--ink-soft); }
+.field-hint { font-size: 11.5px; color: var(--ink-soft); margin: 0; line-height: 1.45; }
+.field-error { font-size: 11.5px; color: var(--danger); margin: 0; }
+.mini-h { font-size: 12.5px; font-weight: 620; color: var(--ink-soft); margin: 14px 0 8px; }
+.mono { font-family: var(--font-mono); }
+
+.row { display: flex; align-items: center; gap: 8px; }
+.row-wrap { flex-wrap: wrap; }
+/* auto-fit + minmax(190px, …) so the pair stacks instead of overflowing. A plain `1fr 1fr` keeps
+   each track at its content's min-content width, and the segmented control needs ~174px for
+   None/White/Black — which pushed the second column ~14px past the panel edge and clipped "Black".
+   Now the fields only sit side by side when they genuinely fit. */
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px 8px; }
+.roll-note { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--ink-soft); }
+
+input[type="text"], input[type="number"], input:not([type]), textarea, select {
+  background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-s);
+  padding: 9px 11px; font-size: 13px; width: 100%;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+input::placeholder, textarea::placeholder { color: #6b7280; }
+textarea { resize: vertical; min-height: 40px; }
+select {
+  appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239aa1ab' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 9px center; padding-inline-end: 30px;
+}
+[dir="rtl"] select { background-position: left 9px center; }
+input:focus, textarea:focus, select:focus {
+  border-color: var(--accent); box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2); outline: none;
+}
+input:hover:not(:focus), textarea:hover:not(:focus), select:hover:not(:focus) { border-color: var(--line-hi); }
+
+.num { display: inline-flex; align-items: center; gap: 5px; }
+.num input { width: 100%; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.num-unit { font-size: 11.5px; color: var(--ink-soft); flex: none; }
+.slider { display: flex; align-items: center; gap: 10px; }
+.slider input[type="range"] { flex: 1; accent-color: var(--accent); }
+.slider .num { width: 64px; flex: none; }
+/* A disabled field keeps its place in the panel instead of vanishing — a control that silently
+   disappears when another option turns on reads as a bug. */
+.slider.is-disabled input[type="range"] { opacity: 0.45; cursor: not-allowed; }
+input:disabled, select:disabled, textarea:disabled { opacity: 0.5; cursor: not-allowed; color: var(--ink-soft); }
+
+.seg { display: inline-flex; background: var(--raised); border: 1px solid var(--line); border-radius: var(--radius-s); overflow: hidden; }
+.seg button { padding: 7px 12px; font-size: 12.5px; color: var(--ink-soft); border-inline-end: 1px solid var(--line); transition: background-color .12s ease, color .12s ease; }
+.seg button:last-child { border-inline-end: none; }
+.seg button:hover { background: var(--raised-hi); color: var(--ink); }
+.seg button.is-on { background: var(--accent-soft); color: var(--accent-on-soft); }
+
+.toggle { display: flex; align-items: center; gap: 9px; font-size: 13px; cursor: pointer; }
+.toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+.toggle-box {
+  width: 17px; height: 17px; border-radius: 5px; border: 1px solid var(--line-hi);
+  display: flex; align-items: center; justify-content: center; color: transparent; flex: none;
+  transition: background-color .12s ease, border-color .12s ease;
+}
+.toggle input:checked + .toggle-box { background: var(--accent-solid); border-color: var(--accent-solid); color: #fff; }
+.toggle input:focus-visible + .toggle-box { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.pill { font-size: 11px; padding: 3px 9px; border-radius: 20px; background: var(--raised); color: var(--ink-soft); }
+.pill-on { background: var(--accent-soft); color: var(--accent-on-soft); }
+
+.status-list { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; font-size: 12.5px; margin: 0; }
+.status-list dt { display: flex; align-items: center; gap: 5px; color: var(--ink-soft); }
+.status-list dd { margin: 0; text-align: end; font-family: var(--font-mono); }
+
+/* --------------------------------------------------------------- stage */
+
+.stage {
+  position: absolute; inset: 0; overflow: auto;
+  background: var(--mat);
+  background-image:
+    linear-gradient(var(--mat-deep) 1px, transparent 1px),
+    linear-gradient(90deg, var(--mat-deep) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.stage-canvas { position: relative; margin: auto; }
+.stage canvas { display: block; }
+.stage-annot { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.stage-hit { position: absolute; inset: 0; touch-action: none; cursor: default; }
+
+.dim line { stroke: var(--ink-soft); stroke-width: 1; opacity: 0.45; }
+.dim text { fill: var(--ink-soft); font: 10.5px var(--font-mono); }
+.zone-tag { fill: var(--ink-soft); font: 600 11px var(--font-mono); }
+.guide { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; }
+
+.sel-outline { fill: none; stroke: var(--focus); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.sel-group { fill: rgba(106, 169, 255, 0.06); stroke-dasharray: 4 3; }
+.handle { fill: #fff; stroke: var(--focus); stroke-width: 1.5; }
+.handle-rot { stroke-width: 1.5; }
+.rot-stem { stroke: var(--focus); stroke-width: 1; stroke-dasharray: 3 3; }
+
+.zoom-bar {
+  position: absolute; bottom: 16px; inset-inline-start: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 2px;
+  background: var(--raised); border-radius: 22px; padding: 4px;
+  box-shadow: var(--shadow-2), inset 0 0 0 1px var(--line);
+}
+[dir="rtl"] .zoom-bar { transform: translateX(50%); }
+.zoom-bar button { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--ink-soft); }
+.zoom-bar button:hover { background: var(--raised-hi); color: var(--ink); }
+.zoom-val { font-family: var(--font-mono); font-size: 11.5px; width: auto !important; padding: 0 8px !important; border-radius: 14px !important; }
+
+/* This one sits on the white paper, so its text colour comes from the element
+   being edited (InlineTextEditor sets it inline) — never from --ink, which is
+   a light colour here and would render invisibly on white. */
+.inline-editor {
+  position: absolute; background: transparent; border: 1.5px dashed var(--focus);
+  outline: none; overflow: hidden; box-sizing: border-box;
+}
+
+/* -------------------------------------------------------------- modals */
+
+.scrim {
+  position: fixed; inset: 0; background: rgba(8, 9, 11, 0.68);
+  display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px;
+}
+.modal {
+  background: var(--chrome); border-radius: var(--radius-l);
+  box-shadow: var(--shadow-2), inset 0 0 0 1px var(--line);
+  width: 420px; max-width: 100%; max-height: min(640px, 88vh);
+  display: flex; flex-direction: column;
+}
+.modal-wide { width: 620px; }
+.modal-small { width: 300px; text-align: center; padding: 26px 20px; align-items: center; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 10px; }
+.modal-head h2 { font-size: 15.5px; margin: 0; }
+.modal-body { padding: 4px 18px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 13px 18px; border-top: 1px solid var(--line); }
+
+.scrim-print { z-index: 200; }
+.printing-mark { color: var(--accent); margin-block-end: 6px; }
+.bar { height: 6px; border-radius: 4px; background: var(--raised); overflow: hidden; margin: 12px 0 4px; width: 100%; }
+.bar span { display: block; height: 100%; background: var(--accent-solid); transition: width .2s ease; }
+
+.dlg-row { display: flex; gap: 8px; align-items: center; }
+.dlg-row-wrap { flex-wrap: wrap; }
+.dlg-row .grow { flex: 1; }
+.empty-note { color: var(--ink-soft); font-size: 13px; text-align: center; padding: 24px 10px; }
+
+.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 360px; overflow-y: auto; }
+.list li { display: flex; align-items: center; gap: 4px; border-radius: var(--radius-s); }
+.list li:hover, .list li.is-current { background: var(--raised); }
+.list-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; text-align: start; }
+.list-main strong { font-size: 13.5px; font-weight: 560; }
+.list-main span { font-size: 11.5px; color: var(--ink-soft); font-family: var(--font-mono); }
+
+.table-wrap { overflow-x: auto; max-height: 340px; }
+table.data { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+table.data th, table.data td { border: 1px solid var(--line); padding: 4px; }
+table.data th { background: var(--raised); font-weight: 600; position: sticky; top: 0; }
+table.data input { border: none; padding: 4px; background: transparent; }
+
+.thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; max-height: 340px; overflow-y: auto; }
+.thumb { display: flex; flex-direction: column; align-items: center; gap: 4px; border-radius: var(--radius-s); padding: 6px; border: 2px solid transparent; }
+.thumb canvas { max-width: 100%; background: #fff; box-shadow: 0 0 0 1px var(--line); }
+.thumb span { font-size: 10.5px; color: var(--ink-soft); font-family: var(--font-mono); }
+.thumb.is-on { border-color: var(--accent); background: var(--accent-soft); }
+
+.roll-preview { width: 100%; height: 90px; }
+.roll-preview rect { fill: #fff; stroke: var(--line-hi); }
+.roll-preview text { font: 600 11px var(--font-mono); fill: var(--ink-soft); }
+
+/* -------------------------------------------------------------- toasts */
+
+.toasts { position: fixed; bottom: 18px; inset-inline-end: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 300; }
+.toast {
+  background: var(--raised); color: var(--ink); padding: 11px 15px; border-radius: var(--radius-s);
+  font-size: 13px; box-shadow: var(--shadow-2), inset 0 0 0 1px var(--line); max-width: 320px;
+}
+.toast-error { background: var(--toast-error-bg); color: #fff; box-shadow: var(--shadow-2); }
+.toast-success { background: var(--toast-success-bg); color: #fff; box-shadow: var(--shadow-2); }
+
+/* --------------------------------------------------------------- mobile */
+
+/* .conn-label-short mirrors .conn-label-full (visible on desktop, swapped below) so the button
+   text never needs mid-word truncation on a narrow topbar — see TopBar.tsx. */
+.conn-label-short { display: none; }
+
+@media (max-width: 880px) {
+  /* One column: tool strip, then stage, then inspector. The strip is already a top row on
+     desktop, so mobile only has to collapse the second row — no reordering, and it never needs
+     the sideways-scroll compromise a bottom-docked toolbar required on short viewports.
+     overflow is reset on BOTH axes on .toolbox: the desktop rule pairs overflow-x: auto with
+     overflow-y: hidden, and the CSS overflow spec promotes a lone non-visible axis to the other,
+     so leaving one axis out here would clip the shape submenu — an absolutely-positioned child
+     of a tool inside this row — into invisibility. Its geometry would be right; the scrolling
+     ancestor would still cut it off. */
+  .app-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; }
+  .toolbox { grid-column: 1; grid-row: 1; overflow: visible; padding: 6px 8px; }
+  /* No forced floor here. The 1fr track already hands the stage everything the
+     chrome and the capped inspector leave, and — unlike flexbox, which the
+     desktop layout used to use — grid rows never shrink below their content, so
+     a 40vh floor would push the total 2px past the viewport and overlap the
+     inspector instead of simply yielding. */
+  .app-stage { grid-column: 1; grid-row: 2; min-height: 0; }
+  .app-panel { grid-column: 1; grid-row: 3; max-height: 42vh; border-inline-start: none; border-top: 1px solid var(--line); }
+  .doc-name { max-width: 70px; }
+  .btn-text { display: none; }
+  .modal-wide { width: 100%; }
+
+  /* The topbar's content (brand, doc name, undo/redo, language, about, connect, print) is
+     comfortably wider than a phone screen. Rather than letting it overflow off-screen with no
+     way to reach the rest (which is what made the Connect button unreachable), it wraps onto a
+     second row — every control stays on-screen and reachable, in both LTR and RTL (flex-wrap
+     follows the container's writing direction automatically, so this needs no RTL-specific
+     rule). Labels are also shortened so the common case still fits on one row.  */
+  .topbar { flex-wrap: wrap; row-gap: 6px; padding: 7px 9px; }
+  .topbar-spacer { flex: none; width: 0; }
+  .brand-name { display: none; }
+  .conn-label-full { display: none; }
+  .conn-label-short { display: inline; }
+
+  /* Touch targets: comfortably above the ~40-44px guideline, without changing desktop sizing. */
+  .btn, .doc, .conn, .tool { min-height: 40px; }
+  .btn-icon { padding: 10px; }
+  .seg button, .toggle-box { min-height: 32px; }
+
+  /* The zoom pill used to float centred over the middle of the canvas, which on a phone is
+     exactly where the label sits — it covered the artwork you were working on. It moves to the
+     end corner, shrinks, and drops its +/- steps: pinch already zooms on touch, so those two
+     round buttons were the bulk of the obstruction and the least of the value. The readout
+     (tap for 100%) and Fit remain. transform is reset for both directions because the base
+     rule and its [dir="rtl"] override each apply one. */
+  /* Bottom-right corner, tucked as tight as it can go. On a 390px-wide phone the design area is
+     only ~336px tall while the label is ~238px of it, so a floating control will always sit in
+     the same band as the paper at fit-zoom; shrinking the pill to 34px buttons and pulling it to
+     8px from the edge keeps it clear of the paper's lower edge instead of resting on it. */
+  .zoom-bar { inset-inline-start: auto; inset-inline-end: 8px; bottom: 8px; transform: none; padding: 2px; gap: 2px; }
+  [dir="rtl"] .zoom-bar { transform: none; }
+  /* Specificity matters here: the base `.zoom-bar button` rule (0,1,1) sets display: flex, so a
+     bare `.zoom-step` (0,1,0) never wins no matter how late it appears. The compound selector
+     ties on class count and then outranks it on element count. */
+  .zoom-bar button.zoom-step { display: none; }
+  .zoom-bar button { width: 34px; height: 34px; font-size: 11px; }
+
+  /* The connect menu (and any other menu anchored the same way) can open from a button anywhere
+     along a now-wrapped topbar row. Anchoring it to the button's own edge, as on desktop,
+     measurably pushed it off the OPPOSITE edge of a narrow screen instead — e.g. a button near
+     the left of a wrapped row combined with the menu's right-edge anchor sent most of a 210px
+     menu off the left side of a 390px viewport, confirmed by measuring its bounding box, not
+     just assumed. Anchoring it to the viewport instead, as a fixed bottom sheet, is correct
+     regardless of where the trigger ends up. This does not apply to .menu-tools (the shape
+     submenu), which stays anchored to its own trigger so it opens directly below the tool
+     strip. */
+  .menu-wrap { position: static; }
+  .menu:not(.menu-tools) {
+    position: fixed; inset-inline: 12px; top: auto; bottom: 12px;
+    width: auto; max-width: none;
+  }
+}
+
+/* Icon-only tools once the labels would otherwise force the strip to scroll sideways. */
+@media (max-width: 560px) {
+  .tool { padding: 10px; gap: 0; }
+  .tool span { display: none; }
+  .tool-badge { top: 2px; inset-inline-end: 2px; }
+}
+
+/* Landscape phones / short viewports: the inspector's 42vh cap would leave the stage barely
+   taller than the topbar, so it gives back more of the height here. The stage needs no rule —
+   as the 1fr track it already takes whatever is left. (The old `flex: 1` that lived here became
+   meaningless once the body switched from flexbox to grid.) */
+@media (max-width: 880px) and (max-height: 500px) {
+  .app-panel { max-height: 34vh; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}

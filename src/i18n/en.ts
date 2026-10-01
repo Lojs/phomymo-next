@@ -1,0 +1,87 @@
+export const en = {
+  appName: 'Phomymo Next',
+  // top bar
+  undo: 'Undo', redo: 'Redo', print: 'Print', printing: 'Printing…', connect: 'Connect', connectPrinter: 'Connect Printer', connecting: 'Connecting…',
+  disconnect: 'Disconnect', connected: 'Connected', notConnected: 'Not connected', language: 'Language',
+  // tools
+  addText: 'Text', addImage: 'Image', addBarcode: 'Barcode', addQR: 'QR code', addShape: 'Shapes', templateData: 'Data',
+  rectangle: 'Rectangle', ellipse: 'Ellipse', triangle: 'Triangle', line: 'Line',
+  diamond: 'Diamond', star: 'Star', heart: 'Heart', pentagon: 'Pentagon', hexagon: 'Hexagon',
+  arrowRight: 'Arrow right', arrowLeft: 'Arrow left', plus: 'Plus', check: 'Check',
+  // designs
+  designs: 'Designs', newDesign: 'New design', saveDesign: 'Save', saveAs: 'Save as…', openDesign: 'Open', delete: 'Delete',
+  exportJson: 'Export JSON', importJson: 'Import JSON', exportPng: 'Export PNG', exportPdf: 'Export PDF',
+  designName: 'Design name', noDesigns: 'No saved designs yet. Save your current label to find it here.',
+  saved: 'Saved', deleted: 'Deleted', imported: 'Imported', rename: 'Rename', untitled: 'Untitled',
+  confirmNew: 'Start a new design? Unsaved changes are kept in undo history only.',
+  elementsCount: '{n} elements', recordsCount: '{n} records',
+  // label panel
+  label: 'Label', labelSize: 'Label size', orientation: 'Orientation', portrait: 'Portrait', landscape: 'Landscape', custom: 'Custom…', roundLabels: 'Round labels', continuousTape: 'Continuous tape',
+  multiLabel: 'Multi-label roll…', width: 'Width', height: 'Height', round: 'Round', continuous: 'Continuous',
+  tapeWidth: 'Tape width', mm: 'mm', printer: 'Printer', printerModel: 'Printer model', autoDetect: 'Auto-detect',
+  density: 'Density', copies: 'Copies', feed: 'Feed', densityTest: 'Density test',
+  printPreview: 'Print preview', printPreviewHint: 'Shows images as they will be dithered on paper. Text stays crisp.',
+  managePrinters: 'Manage printers…',
+  printSettings: 'Print settings', reset: 'Reset',
+  lengthMinus: 'Shorter', lengthPlus: 'Longer',
+  // roll
+  multiLabelRoll: 'Multi-label roll', labelsAcross: 'Labels across', gap: 'Gap', cloneMode: 'Same design on every label',
+  cloneNow: 'Copy this label to all', presets: 'Presets', savePreset: 'Save preset', presetName: 'Preset name',
+  apply: 'Apply', exitRoll: 'Back to single label', zone: 'Label {n}', cancel: 'Cancel', close: 'Close', done: 'Done', save: 'Save',
+  // properties
+  properties: 'Properties', position: 'Position', size: 'Size', rotation: 'Rotation', arrange: 'Arrange',
+  bringFront: 'Bring to front', sendBack: 'Send to back', forward: 'Forward', backward: 'Backward',
+  group: 'Group', ungroup: 'Ungroup', duplicate: 'Duplicate', remove: 'Delete', multipleSelected: '{n} elements selected',
+  text: 'Text', font: 'Font', fontSize: 'Size', bold: 'Bold', italic: 'Italic', underline: 'Underline',
+  alignLeft: 'Left', alignCenter: 'Center', alignRight: 'Right', alignTop: 'Top', alignMiddle: 'Middle', alignBottom: 'Bottom',
+  textColor: 'Text colour', black: 'Black', white: 'White', background: 'Background', transparent: 'Transparent',
+  noWrap: 'Single line', clipOverflow: 'Clip overflow', autoScale: 'Fit text to box',
+  fontSizeAuto: 'Set automatically while “Fit text to box” is on.',
+  insertField: 'Insert field', newField: 'New field…', fieldName: 'Field name', insertExpression: 'Insert date/time',
+  barcodeData: 'Barcode data', barcodeFormat: 'Format', showText: 'Show text', textSize: 'Text size',
+  barcodeTooWide: 'Too wide for this box — widen it or shorten the data.',
+  barcodeInvalid: 'This data is not valid for {format}.',
+  qrData: 'QR content', shapeType: 'Shape', fill: 'Fill', stroke: 'Outline', strokeWidth: 'Outline width', cornerRadius: 'Corner radius',
+  none: 'None', gray25: '25% gray', gray50: '50% gray', gray75: '75% gray',
+  brightness: 'Brightness', contrast: 'Contrast', dither: 'Dithering', lockAspect: 'Keep proportions',
+  ditherNone: 'None (threshold)', ditherOrdered: 'Ordered (Bayer)', ditherAtkinson: 'Atkinson', ditherFloyd: 'Floyd–Steinberg',
+  // stage
+  zoomIn: 'Zoom in', zoomOut: 'Zoom out', zoomFit: 'Fit to screen', emptyStageTitle: 'Your label is empty',
+  emptyStageBody: 'Add text, an image, a barcode or a QR code from the toolbar.',
+  // template
+  templateTitle: 'Template data', fieldsHint: 'Use {{Name}} in text, barcode or QR content to merge a field per record.',
+  noFields: 'No fields yet — type {{Name}} in a text element.', addRecord: 'Add record', importCsv: 'Import CSV', exportCsv: 'Export CSV',
+  sampleData: 'Fill sample data', clearData: 'Clear data', preview: 'Preview', printSelected: 'Print selected', printAll: 'Print all',
+  selectAll: 'Select all', selectNone: 'Select none', recordsPrinting: 'Printing {n} labels',
+  rowsPrinting: 'Printing {rows} rows ({n} labels)', csvErrors: 'CSV warnings', csvImported: 'Imported {n} records',
+  noRecordsToPrint: 'No records to print', printCancelled: 'Printing cancelled', printedN: 'Printed {n} labels', stop: 'Stop',
+  record: 'Record {n}',
+  // connect / model
+  chooseModelTitle: 'Which printer is this?', chooseModelBody: '“{name}” wasn’t recognised. Pick the closest model so the right print protocol is used.',
+  remember: 'Remember for this device', useModel: 'Use this model', unrecognized: 'Unrecognized printer',
+  bluetooth: 'Bluetooth', usb: 'USB', showAllDevices: 'Show all Bluetooth devices',
+  battery: 'Battery', paper: 'Paper', cover: 'Cover', firmware: 'Firmware', serial: 'Serial',
+  paperOk: 'OK', paperOut: 'Out of paper', coverOpen: 'Open', coverClosed: 'Closed',
+  btUnsupported: 'This browser can’t use Bluetooth printing here. Use Chrome or Edge, and open the app over HTTPS.',
+  usbUnsupported: 'This browser can’t use USB printing here. Use Chrome or Edge, and open the app over HTTPS.',
+  noConnectSupport: 'This browser doesn’t support Bluetooth or USB printing. Use Chrome or Edge on desktop or Android, over HTTPS.',
+  needsHttps: 'Bluetooth and USB need a secure connection (HTTPS or localhost).',
+  connectFailed: 'Couldn’t connect', connectionLost: 'Connection lost', permissionDenied: 'Permission denied — allow Bluetooth/USB access for this site and try again.',
+  deviceUnavailable: 'The device is busy or out of range. Turn it on, move closer, and try again.',
+  printFailed: 'Print failed', printComplete: 'Print complete', printedCopies: 'Printed {n} copies', sending: 'Sending {pct}%',
+  connectFirst: 'Connect to a printer first',
+  // printers manager
+  printersTitle: 'Printer definitions', builtin: 'Built-in', customPrinter: 'Custom', addPrinter: 'Add printer', editPrinter: 'Edit printer',
+  printerId: 'ID', printerName: 'Name', protocol: 'Protocol', widthBytes: 'Width (bytes)', dpi: 'DPI', alignment: 'Alignment',
+  rotated: 'Sideways (rotated)', tapePrinter: 'Tape printer', namePatterns: 'Bluetooth name prefixes (comma separated)',
+  resetPrinter: 'Reset to default',
+  // about
+  aboutTitle: 'About Phomymo Next', aboutBody: 'A label designer for Phomemo thermal printers. Designs stay in your browser; printing goes straight from the browser to the printer over Bluetooth or USB.',
+  shortcuts: 'Shortcuts',
+  // misc
+  errorImage: 'Could not read that image', errorFile: 'Could not read that file', storageFull: 'Could not save — browser storage may be full',
+  systemFonts: 'Add system fonts', systemFontsUnsupported: 'System fonts are not available in this browser',
+  yes: 'Yes', no: 'No',
+} as const;
+
+export type Key = keyof typeof en;
