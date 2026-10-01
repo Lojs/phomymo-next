@@ -1,6 +1,6 @@
 {
   "name": "phomymo-next",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Label designer for Phomemo thermal printers — a React + TypeScript rewrite inspired by transcriptionstream/phomymo.",
