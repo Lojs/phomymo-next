@@ -253,7 +253,7 @@ If you want the upstream project itself, use
 
 Released under the [MIT Licence](LICENSE).
 
-Copyright © 2026 Mohammed
+Copyright © 2026 Lojs
 
 <p align="center">
   <sub>Made with patience, in Kuwait.</sub>
