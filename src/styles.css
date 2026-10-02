@@ -405,6 +405,13 @@ input:disabled, select:disabled, textarea:disabled { opacity: 0.5; cursor: not-a
 .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 10px; }
 .modal-head h2 { font-size: 15.5px; margin: 0; }
 .modal-body { padding: 4px 18px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+/* The About dialog's footer metadata, under the shortcut list: the version, then the
+   credit. dir="ltr" on the wrapper pins both to the physical left in every language —
+   they are English strings, and a left-hand version with a right-hand credit read as
+   untidy in RTL. text-align:left (not `start`) is deliberate for the same reason. */
+.about-meta { display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.app-version { margin: 0; font-family: var(--font-mono); font-size: 12px; color: var(--ink-soft); letter-spacing: .02em; }
+.about-meta .field-hint { margin: 0; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 13px 18px; border-top: 1px solid var(--line); }
 
 .scrim-print { z-index: 200; }

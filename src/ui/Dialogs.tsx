@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../state/store';
 import { useT } from '../i18n';
+import { APP_VERSION } from '../version';
 import { Button, Field, Modal, NumberInput, Segmented, Select, Slider, Toggle } from './kit';
 import { Icon } from './icons';
 import { deleteDesign, listDesigns, loadDesign, renameDesign, designExists, saveCustomPrinters, loadCustomPrinters, deleteMultiPreset, loadMultiPresets, saveMultiPreset, saveDeviceModel, DEFAULT_SETTINGS } from '../core/storage/storage';
@@ -291,7 +292,15 @@ export function AboutDialog() {
       <p>{t('aboutBody')}</p>
       <h3 className="mini-h">{t('shortcuts')}</h3>
       <dl className="status-list mono">{keys.slice(0, 7).map(([k, v]) => <><dt key={k}>{k}</dt><dd>{v}</dd></>)}</dl>
-      <p className="field-hint">Based on <a href="https://github.com/transcriptionstream/phomymo" target="_blank" rel="noreferrer">transcriptionstream/phomymo</a>.</p>
+      {/* The version is shown here rather than in the topbar, keeping the brand lockup clean.
+          Both this line and the credit below are pinned to the physical left in every
+          language — they are English/LTR strings, and mixing a left-hand version with a
+          right-hand credit looked untidy in the RTL layout. dir="ltr" also stops RTL from
+          reordering "v1.0.2". */}
+      <div className="about-meta" dir="ltr">
+        <p className="app-version">v{APP_VERSION}</p>
+        <p className="field-hint">Based on <a href="https://github.com/transcriptionstream/phomymo" target="_blank" rel="noreferrer">transcriptionstream/phomymo</a>.</p>
+      </div>
     </Modal>
   );
 }
