@@ -77,6 +77,15 @@ if (hasDom) {
     });
   }
 
+  // jsdom has no ResizeObserver, and the stage uses one to track its size.
+  if (!('ResizeObserver' in globalThis)) {
+    (globalThis as any).ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  }
+
   // URL.createObjectURL is used by the download helper.
   if (!URL.createObjectURL) {
     Object.defineProperty(URL, 'createObjectURL', { value: () => 'blob:test', configurable: true, writable: true });
