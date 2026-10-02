@@ -1,103 +1,131 @@
+<div align="center">
+
 # Phomymo Next
 
-A label designer for Phomemo thermal printers — text, images, barcodes, QR
-codes, shapes, multi-label rolls and CSV/template batch printing — printed
-straight from the browser over Bluetooth or USB. A React + TypeScript
-rewrite with an Arabic/English interface.
+**A label designer for Phomemo thermal printers — in your browser, in Arabic and English.**
 
-![Phomymo Next — the label designer, editing a 60×40 mm product label](docs/screenshots/desktop-en.png)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/Lojs/phomymo-next?label=Release&color=blue)](https://github.com/Lojs/phomymo-next/releases/latest)
+[![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ed?logo=docker&logoColor=white)](https://github.com/Lojs/phomymo-next/pkgs/container/phomymo-next)
 
-<p align="center"><sub><i>Phomymo Next editing a 60×40 mm product label</i></sub></p>
+Text, images, barcodes, QR codes, shapes, multi-label rolls, and CSV batch
+printing — designed on screen and printed straight from the browser over
+Bluetooth or USB.
 
-![The same app in Arabic, with a full right-to-left layout](docs/screenshots/desktop-ar.png)
+</div>
 
-<p align="center"><sub><i>The same app in Arabic — the whole interface mirrors to RTL</i></sub></p>
+---
 
-<p align="center">
-  <img src="docs/screenshots/mobile.png" alt="Phone layout" width="260">
-  <br>
-  <sub><i>Phone layout — the inspector becomes a bottom sheet</i></sub>
-</p>
+## Screenshots
 
-## Credits and provenance
+<div align="center">
 
-**This project is inspired by and derived from
-[transcriptionstream/phomymo](https://github.com/transcriptionstream/phomymo)**
-— an excellent browser-based label designer written in plain JavaScript. The
-original established the hard parts: the Phomemo print protocols, the raster
-and dithering pipeline, and the printer definitions. Phomymo Next rebuilds
-that work as a typed, component-based application.
+<img src="docs/screenshots/desktop-en.png" alt="Phomymo Next editing a 60×40 mm product label" width="100%">
 
-What came from the original:
+<sub>Designing a 60×40 mm coffee label — text, rules, a CODE128 barcode and a QR code</sub>
 
-- `src/core/protocols/` and `src/core/printers/` — the print protocol and
-  printer-definition logic, ported to TypeScript.
-- `src/transport/` — Web Bluetooth and WebUSB handling, ported.
-- `tests/legacy/` — a frozen copy of the original implementation, kept so the
-  golden tests can assert that this rewrite produces byte-identical output.
-- `tests/golden-*.test.ts` — 193 of the 255 tests compare against that legacy
-  code directly.
+<br><br>
 
-What is new here: the React component architecture, the TypeScript data model,
-the Arabic/English interface, orientation support, and the Docker/HTTPS
-packaging.
+<img src="docs/screenshots/desktop-ar.png" alt="The same app in Arabic, mirrored to RTL" width="100%">
 
-The original project's README states an MIT licence but ships no `LICENSE`
-file; see [LICENSE](LICENSE) for this project's licence and
-[NOTICE](NOTICE) for the full attribution, including the upstream's own
-protocol research (`vivier/phomemo-tools`, `yaddran/thermal-print`, and
-reverse-engineering by `ooki1jp`).
+<sub>The same design in Arabic — the entire interface mirrors to right-to-left</sub>
 
-If you want the upstream project itself, use
-[transcriptionstream/phomymo](https://github.com/transcriptionstream/phomymo).
+<br><br>
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/mobile.png" alt="Phone layout" width="260"></td>
+</tr>
+<tr>
+<td align="center"><sub>On a phone the inspector becomes a bottom sheet</sub></td>
+</tr>
+</table>
+
+</div>
+
+---
+
+## Table of contents
+
+- [What it does](#what-it-does)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [Accessing it from your phone](#accessing-it-from-your-phone)
+- [Commands](#commands)
+- [Where your data lives](#where-your-data-lives)
+- [Local development](#local-development)
+- [Project layout](#project-layout)
+- [Credits and provenance](#credits-and-provenance)
+- [Licence](#licence)
+
+---
+
+## What it does
+
+- **Real label sizes.** 12 preset sizes plus round labels, continuous tape, and
+  any custom size you enter in millimetres. The size you pick is the paper
+  that's actually in the printer — orientation never rewrites it.
+- **Portrait and Landscape** on any rectangular label. Switching rotates your
+  whole design 90° as one piece; nothing is reset.
+- **Print over Bluetooth or USB**, with the paper width, DPI, and alignment
+  taken from the printer model (18 built-in definitions, plus your own).
+- **Batch printing from CSV or a template table** — one design, many records,
+  with fields and expressions like `[[date]]`.
+- **Print preview** that shows images as they will actually dither on paper,
+  while keeping text and barcodes crisp.
+- **Import / export** designs as JSON, PNG, or PDF.
+- **Arabic and English**, with a full right-to-left layout.
+
+---
 
 ## Requirements
 
-Bluetooth and USB printing use the Web Bluetooth / WebUSB APIs, which only
-work in **Chrome or Edge**, and only in a **secure context** — HTTPS, or
-`http://localhost`. That's why the Docker image below serves the app over
-HTTPS by default.
+Bluetooth and USB printing use the Web Bluetooth / WebUSB APIs, which work
+**only in Chrome or Edge**, and **only in a secure context** — HTTPS, or
+`http://localhost`. That is why the Docker image serves the app over HTTPS.
 
-## Run it with Docker (recommended)
+---
 
-### Quick start
+## Quick start
 
 ```sh
-cp .env.example .env        # then edit PHOMYMO_DOMAIN if needed — see below
+cp .env.example .env        # edit PHOMYMO_DOMAIN if you need LAN access
 docker compose up -d --build
 ```
 
-Then open **https://localhost:8444** on this machine, or
-**https://\<this-machine's-LAN-IP\>:8444** from any other device on your
-network (phone, another computer, etc.) — Docker Compose publishes the
-port on all network interfaces by default, so nothing extra is needed for
-LAN access.
+Then open **https://localhost:8444**.
 
-The stack publishes a **single port** (`8444:443`). The app only works in a
-secure context, so there is no plain-HTTP port to redirect from — always use
-`https://` and the `8444` port explicitly.
+The stack publishes a **single port** (`8444:443`). There is no plain-HTTP
+port to redirect from, so always use `https://` and the port explicitly.
 
-### Accessing it from other devices on your network
+---
 
-1. Find this machine's LAN IP (e.g. `192.168.1.50`) — `hostname -I` on
-   Linux, or check your router.
-2. Put that IP in `.env`:
-   ```
+## Accessing it from your phone
+
+Docker Compose publishes the port on all interfaces, so any device on your
+network can reach it — you only need to tell the container which address to
+put in its certificate.
+
+1. Find this machine's LAN IP — `hostname -I` on Linux, or check your router.
+2. Put it in `.env`:
+   ```sh
    PHOMYMO_DOMAIN=192.168.1.50
    ```
-3. `docker compose up -d --build` (or just restart if already running, see
-   below) so the certificate is regenerated for that address.
-4. From another device on the same network, open
-   `https://192.168.1.50:8444`.
+3. Restart so the certificate is regenerated for that address:
+   ```sh
+   docker compose up -d
+   ```
+4. On your phone, open **https://192.168.1.50:8444**.
 
-The container generates a self-signed certificate on first start, so your
-browser will show a security warning — that's expected for a self-signed
-cert; click through it once (usually "Advanced" → "Proceed") and the
-origin counts as secure from then on, which is what Bluetooth/USB
-printing need.
+The container generates a **self-signed certificate** on first start, so your
+browser will warn once — that is expected. Click through it ("Advanced" →
+"Proceed"); the origin counts as secure from then on, which is what Bluetooth
+and USB printing need.
 
-**Using your own certificate instead of the self-signed one:** copy
-`cert.pem` and `key.pem` into the `phomymo-certs` volume, then restart:
+<details>
+<summary>Using your own certificate instead</summary>
+
+Drop `cert.pem` and `key.pem` into the `phomymo-certs` volume and restart:
 
 ```sh
 docker compose cp ./cert.pem phomymo-next:/certs/cert.pem
@@ -105,87 +133,128 @@ docker compose cp ./key.pem  phomymo-next:/certs/key.pem
 docker compose restart
 ```
 
-If both files are already there on startup, the self-signed one is never
+If both files already exist on startup, the self-signed one is never
 generated.
 
-### Commands
+</details>
+
+---
+
+## Commands
 
 | Action | Command |
 |---|---|
 | Build the image | `docker compose build` |
-| Start the container (builds if needed) | `docker compose up -d --build` |
+| Start (builds if needed) | `docker compose up -d --build` |
 | Start without rebuilding | `docker compose up -d` |
-| Stop the container | `docker compose down` |
+| Stop | `docker compose down` |
 | View logs | `docker compose logs -f` |
-| Rebuild after changing source code | `docker compose up -d --build` |
+| Rebuild after changing source | `docker compose up -d --build` |
 | Check it's running | `docker compose ps` |
-| Full reset (also drops the cert volume) | `docker compose down -v` |
+| Full reset (drops the cert volume) | `docker compose down -v` |
 
-### Persistent storage
+---
 
-The **only** thing persisted server-side is the HTTPS certificate
-(`phomymo-certs` volume, mounted at `/certs`), so it survives container
-restarts and rebuilds instead of showing a fresh browser warning every
-time. Everything else — designs, settings, printer memory, template data
-— lives in the browser's `localStorage` on each device that opens the
-app; the server is stateless otherwise, and running `docker compose down`
-(without `-v`) never touches that.
+## Where your data lives
+
+The **only** thing persisted server-side is the HTTPS certificate (the
+`phomymo-certs` volume, mounted at `/certs`), so it survives restarts and
+rebuilds instead of showing a fresh browser warning every time.
+
+Everything else — your designs, settings, printer memory, template data —
+lives in the browser's `localStorage` on each device that opens the app. The
+server is stateless otherwise, so `docker compose down` never touches it.
+
+---
 
 ## Local development
 
 ```sh
 npm install
-npm run dev        # http://localhost:5173 — localhost counts as secure, so BLE/USB work here too
-npm run build       # production build to dist/
+npm run dev         # http://localhost:5173 — localhost counts as secure, so BLE/USB work here too
+npm run build       # production build into dist/
 npm test            # unit + golden tests against the original app's logic
 npm run typecheck
 ```
 
+### Tests
+
+255 tests. Most of them are **golden tests**: they compare this rewrite's
+output byte-for-byte against a frozen copy of the original implementation in
+`tests/legacy/`, so a refactor can't quietly change what reaches the paper.
+
+---
+
 ## Project layout
 
-- `src/core/` — framework-free logic: printer protocols and byte encoders,
-  image rasterisation/dithering, the element/label data model, templates
-  and CSV, label rendering, and orientation (Portrait/Landscape — see
-  below). Fully unit-tested against the original app's behaviour
-  (`tests/golden-*.test.ts`) plus new tests for geometry and orientation.
-- `src/transport/` — Web Bluetooth and WebUSB, ported from the original.
-- `src/state/store.ts` — the app's single Zustand store.
-- `src/services/` — printing orchestration and user actions (add/import/export).
-- `src/ui/` — React components; `src/ui/stage/` is the canvas editor.
-- `src/i18n/` — English and Arabic dictionaries.
-- `docker/` — nginx + HTTPS packaging.
+| Path | What lives there |
+|---|---|
+| `src/core/` | Framework-free logic: print protocols and byte encoders, rasterisation and dithering, the element/label data model, templates and CSV, and orientation. Unit-tested against the original behaviour. |
+| `src/transport/` | Web Bluetooth and WebUSB. |
+| `src/state/store.ts` | The app's single Zustand store. |
+| `src/services/` | Print orchestration and user actions. |
+| `src/ui/` | React components; `src/ui/stage/` is the canvas editor. |
+| `src/i18n/` | English and Arabic dictionaries. |
+| `docker/` | nginx + HTTPS packaging. |
 
-## Orientation (Portrait / Landscape)
+### Orientation, briefly
 
-Rectangular, non-square labels can be designed in Portrait or Landscape.
-The physical label size you pick is never rewritten — orientation only
-changes how the design sits on it:
+`LabelSize.orientation` sits next to `width`/`height`, which always stay the
+literal physical millimetres. **Portrait** always means a tall canvas and
+**Landscape** a wide one, built from the label's actual short and long sides —
+so a 40×30 mm tape and a custom 30×100 mm label both support both
+orientations. Switching rotates the composition as one piece
+(`rotateComposition`), and at print time the artwork is rotated back onto the
+label's physical axes (`rotatePixelsCW`) *before* the protocol pipeline — so
+`widthBytes`, DPI scaling, and printer-specific rotation never learn that
+orientation exists.
 
-- `LabelSize.orientation` (`'portrait' | 'landscape'`) lives next to
-  `width`/`height`, which always stay the literal physical mm values.
-- **Portrait always means the canvas is tall** (width ≤ height) and
-  **Landscape always means wide** (width ≥ height) — true regardless of
-  which physical dimension the label happens to call "width". A 40×30mm
-  tape preset and a custom 30×100mm label both support both orientations,
-  built from the label's actual short/long sides
-  (`resolveOrientation`/`displayLayout` in `core/render/layout.ts`).
-- Switching orientation on a label that already has elements rotates the
-  whole design 90° as one composition (`rotateComposition` in
-  `core/model/elements.ts`) — nothing is reset, element sizes are kept,
-  only positions and each element's own rotation update.
-- At print/preview time, the rendered artwork is rotated back onto the
-  label's physical axes (`rotatePixelsCW` in `core/render/orient.ts`)
-  *before* it reaches the existing protocol/raster pipeline — so
-  `widthBytes`, DPI scaling, and printer-specific rotation (e.g. D-series)
-  are completely unaware orientation exists and needed no changes.
-- Not applicable to round labels, square labels, or multi-label rolls —
-  the control is hidden for those.
+A design saved before this feature has no `orientation` field. Rather than
+defaulting it to "portrait" — which could visually rotate a design that used
+to render wide — `resolveOrientation` infers whichever orientation reproduces
+the label's existing arrangement unchanged, so **old designs keep printing
+exactly as they always did**.
 
-**Backward compatibility:** a design saved before this feature has no
-`orientation` field. Rather than defaulting that to a literal "portrait"
-(which could visually rotate a design that used to render wide),
-`resolveOrientation` *infers* whichever orientation reproduces the
-label's existing width/height arrangement unchanged — so old designs
-keep printing exactly as they always did. Any explicit choice you make
-afterwards is stored and takes over from there.
+---
 
+## Credits and provenance
+
+**This project is inspired by and derived from
+[transcriptionstream/phomymo](https://github.com/transcriptionstream/phomymo)** —
+an excellent browser-based label designer written in plain JavaScript. The
+original established the hard parts: the Phomemo print protocols, the raster
+and dithering pipeline, and the printer definitions. Phomymo Next rebuilds
+that work as a typed, component-based application.
+
+**Ported from the original:**
+
+- `src/core/protocols/` and `src/core/printers/` — the print protocol and
+  printer-definition logic, in TypeScript.
+- `src/transport/` — Web Bluetooth and WebUSB.
+- `tests/legacy/` — a frozen copy of the original, kept so the golden tests can
+  assert byte-identical output.
+- `tests/golden-*.test.ts` — 193 of the 255 tests compare against that legacy
+  code directly.
+
+**New here:** the React component architecture, the TypeScript data model, the
+Arabic/English interface, orientation support, and the Docker/HTTPS packaging.
+
+The upstream README states an MIT licence but ships no `LICENSE` file. See
+[NOTICE](NOTICE) for the full attribution, including the original project's own
+protocol research (`vivier/phomemo-tools`, `yaddran/thermal-print`, and
+reverse-engineering by `ooki1jp`).
+
+If you want the upstream project itself, use
+[transcriptionstream/phomymo](https://github.com/transcriptionstream/phomymo).
+
+---
+
+## Licence
+
+Released under the [MIT Licence](LICENSE).
+
+Copyright © 2026 Mohammed
+
+<p align="center">
+  <sub>Made with patience, in Kuwait.</sub>
+</p>
