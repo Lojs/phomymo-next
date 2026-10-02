@@ -20,9 +20,34 @@ import { translate } from '../i18n';
 let transport: any = null;
 let kind: 'ble' | 'usb' | null = null;
 
+/**
+ * One print job at a time. The Print button is disabled while `print.active`, but the
+ * Ctrl/Cmd+P shortcut calls printCurrent() directly, and a batch can be started while a single
+ * job runs — either way two jobs would interleave their chunks on the same transport and produce
+ * a garbled label. The guard lives here, not at the call sites, so no future caller can bypass it.
+ */
+let printing = false;
+
 const st = () => useStore.getState();
 const tr = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate(st().lang, key, vars);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Resolve once the given dialog is no longer the open one — i.e. the user answered it (or
+ * dismissed it). Resolves immediately if it is not open. Used to hold a print until the model
+ * picker has been answered, so the raster is not built with a stale `printerModel`.
+ */
+function waitForDialogToClose(name: NonNullable<ReturnType<typeof st>['dialog']>): Promise<void> {
+  if (st().dialog !== name) return Promise.resolve();
+  return new Promise((resolve) => {
+    const unsub = useStore.subscribe((s: { dialog: string | null }) => {
+      if (s.dialog !== name) {
+        unsub();
+        resolve();
+      }
+    });
+  });
+}
 
 export const secureContextOk = () => window.isSecureContext;
 export const bluetoothAvailable = () => BLETransport.isAvailable();
@@ -102,6 +127,11 @@ async function afterConnect(type: 'ble' | 'usb', deviceName: string): Promise<vo
     updateSettings({ printerModel: saved });
   } else if (settings.printerModel === 'auto') {
     st().openDialog('model');
+    // The picker is modal and resolves later, but connectPrinter() used to return immediately —
+    // so a print started right after connecting built its raster while printerModel was still
+    // 'auto' and silently used the wrong profile (dpi/encoding). Wait for the dialog to close,
+    // then re-read settings, so the model the user chose is the one that prints.
+    await waitForDialogToClose('model');
   }
 
   const cfg = currentConfig();
@@ -121,6 +151,11 @@ export async function disconnectPrinter(): Promise<void> {
   try {
     await transport?.disconnect?.();
   } finally {
+    // Clear the module-level handles too. Leaving `kind` set made ensureConnected() reuse the
+    // previous transport type forever — after one USB session every later auto-reconnect defaulted
+    // to USB even when BLE was the only one available.
+    transport = null;
+    kind = null;
     st().setConn({ connected: false, type: null, deviceName: '', status: 'disconnected', error: null });
     st().setPrinterInfo(null);
     st().applyPrinterFamily();
@@ -169,7 +204,10 @@ export async function rasterFor(elements: LabelElement[]): Promise<Raster> {
   const layout = multi.enabled ? multiLayout(multi) : displayLayout(labelSize);
   const rotateForPrint = !multi.enabled && needsPrintRotation(labelSize);
   const { cfg, target } = currentTarget();
-  const ready = evaluateExpressions(elements);
+  // Expressions are already resolved by the caller, which must do it BEFORE field substitution
+  // (see printCurrent). Evaluating again here would re-scan substituted CSV data and reintroduce
+  // the bug where a value containing "[[date]]" prints the current date.
+  const ready = elements;
   await prepareForRender(ready);
   return buildRaster(ready, layout, target, modeFor(ready, cfg), rotateForPrint);
 }
@@ -199,13 +237,24 @@ async function ensureConnected(): Promise<boolean> {
 
 /** Print the design (using the first data record if template data is loaded), N copies. */
 export async function printCurrent(): Promise<boolean> {
-  if (!(await ensureConnected())) return false;
-  const { elements, templateData, settings } = st();
-  const merged = templateData.length ? substituteFields(elements, templateData[0]) : elements;
-  const copies = settings.copies;
-
-  st().setPrint({ active: true, label: tr('printing'), current: 0, total: copies, sub: '' });
+  // Claim the slot BEFORE the first await. Setting `printing` after ensureConnected() would leave
+  // a window where two same-tick calls (e.g. a double Ctrl+P) both pass this check and interleave
+  // their chunks on one transport — the exact bug this guard exists to prevent.
+  if (printing) return false;
+  printing = true;
   try {
+    if (!(await ensureConnected())) return false;
+    const { elements, templateData, settings } = st();
+    // Order matters: expressions ([[date]]) are authored in the design and must resolve first;
+    // field substitution ({{SKU}}) then inserts data. Doing it the other way round made a CSV value
+    // that happened to contain "[[date]]" print the current date instead of the literal text.
+    const base = evaluateExpressions(elements);
+    const merged = templateData.length ? substituteFields(base, templateData[0]) : base;
+    // Settings come from localStorage and are not validated on load, so a corrupt value must not
+    // silently print nothing and then report success.
+    const copies = Math.max(1, Math.floor(settings.copies) || 1);
+
+    st().setPrint({ active: true, label: tr('printing'), current: 0, total: copies, sub: '' });
     const raster = await rasterFor(merged);
     for (let c = 1; c <= copies; c++) {
       st().setPrint({ active: true, label: tr('printing'), current: c - 1, total: copies, sub: copies > 1 ? `${c}/${copies}` : '' });
@@ -220,6 +269,7 @@ export async function printCurrent(): Promise<boolean> {
     st().toast(`${tr('printFailed')}: ${(e as Error).message}`, 'error');
     return false;
   } finally {
+    printing = false;
     st().setPrint(null);
   }
 }
@@ -245,15 +295,17 @@ export async function printBatch(recordIndexes: number[], signal: AbortSignal): 
         return false;
       }
       let merged: LabelElement[];
+      // Expressions first, then data — see the note in printCurrent().
+      const base = evaluateExpressions(elements);
       if (perRow) {
         const recs: (TemplateRecord | undefined)[] = [];
         for (let z = 0; z < across; z++) {
           const idx = recordIndexes[row * across + z];
           recs[z] = idx === undefined ? undefined : templateData[idx];
         }
-        merged = substituteFieldsByZone(elements, recs);
+        merged = substituteFieldsByZone(base, recs);
       } else {
-        merged = substituteFields(elements, templateData[recordIndexes[row]]);
+        merged = substituteFields(base, templateData[recordIndexes[row]]);
       }
       st().setPrint({ active: true, label: title, current: row, total: rows, sub: '' });
       const raster = await rasterFor(merged);
@@ -286,10 +338,19 @@ let abort: AbortController | null = null;
 export const isBatchRunning = () => abort !== null;
 export const cancelBatch = () => abort?.abort();
 export async function runBatch(indexes: number[]): Promise<boolean> {
-  abort = new AbortController();
+  // Refuse to start a second batch. Overwriting `abort` would leave the running batch
+  // uncancellable — cancelBatch() would only signal the new controller — and whichever batch
+  // finished first would null `abort` while the other was still sending, interleaving both on
+  // the same transport.
+  if (abort || printing) return false;
+  const controller = new AbortController();
+  abort = controller;
+  printing = true;
   try {
-    return await printBatch(indexes, abort.signal);
+    return await printBatch(indexes, controller.signal);
   } finally {
-    abort = null;
+    printing = false;
+    // Only clear the slot we own, so a later batch cannot be un-registered by this one.
+    if (abort === controller) abort = null;
   }
 }

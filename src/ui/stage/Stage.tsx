@@ -59,12 +59,18 @@ export function Stage() {
   // stage: it chose 1.10 where 0.60 fits, leaving a 616px canvas in a 414px box — a 202px
   // horizontal scrollbar at the moment you asked it to fit). The 56/96 are the breathing room
   // around the canvas, so they stay outside the division.
+  //
+  // PAD_FIT is much smaller than PAD: the 120px editing margin exists so elements can hang
+  // over the label edge while editing, but at fit time it ate 41% of the viewport on a phone
+  // (a 320px-wide label became a 560px canvas). A 40px margin still keeps edge elements
+  // reachable while letting the label fill the screen.
+  const PAD_FIT = 40;
   const doFit = useCallback(() => {
     const el = scroller.current;
     if (!el) return;
     const z = Math.min(
-      (el.clientWidth - 56) / (layout.width + PAD * 2),
-      (el.clientHeight - 96) / (layout.height + PAD * 2),
+      (el.clientWidth - 56) / (layout.width + PAD_FIT * 2),
+      (el.clientHeight - 96) / (layout.height + PAD_FIT * 2),
     );
     useStore.getState().setZoom(Math.max(0.25, Math.min(3, Math.floor(z * 20) / 20)), true);
   }, [layout.width, layout.height]);

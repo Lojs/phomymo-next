@@ -18,6 +18,8 @@ export const en = {
   // label panel
   label: 'Label', labelSize: 'Label size', orientation: 'Orientation', portrait: 'Portrait', landscape: 'Landscape', custom: 'Custom…', roundLabels: 'Round labels', continuousTape: 'Continuous tape',
   multiLabel: 'Multi-label roll…', width: 'Width', height: 'Height', round: 'Round', continuous: 'Continuous',
+  labelSizeHint: 'Choose the paper size currently loaded in your printer.',
+  orientationHint: 'Lets you design the page in portrait or landscape, depending on how you want to print.',
   tapeWidth: 'Tape width', mm: 'mm', printer: 'Printer', printerModel: 'Printer model', autoDetect: 'Auto-detect',
   density: 'Density', copies: 'Copies', feed: 'Feed', densityTest: 'Density test',
   printPreview: 'Print preview', printPreviewHint: 'Shows images as they will be dithered on paper. Text stays crisp.',

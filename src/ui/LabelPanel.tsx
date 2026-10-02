@@ -60,6 +60,8 @@ export function LabelPanel() {
           <option value="multi">{t('multiLabel')}</option>
         </Select>
 
+        {!s.multi.enabled && <p className="field-hint">{t('labelSizeHint')}</p>}
+
         {!s.multi.enabled && orientationApplies(s.labelSize) && (
           <Field label={t('orientation')}>
             <Segmented
@@ -71,6 +73,9 @@ export function LabelPanel() {
               ]}
             />
           </Field>
+        )}
+        {!s.multi.enabled && orientationApplies(s.labelSize) && (
+          <p className="field-hint">{t('orientationHint')}</p>
         )}
 
         {tape && (

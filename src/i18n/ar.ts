@@ -16,6 +16,8 @@ export const ar: Record<Key, string> = {
   elementsCount: '{n} عناصر', recordsCount: '{n} سجلات',
   label: 'الملصق', labelSize: 'حجم الملصق', orientation: 'الاتجاه', portrait: 'عمودي', landscape: 'أفقي', custom: 'مخصص…', roundLabels: 'ملصقات دائرية', continuousTape: 'شريط متصل',
   multiLabel: 'رول متعدد الملصقات…', width: 'العرض', height: 'الارتفاع', round: 'دائري', continuous: 'متصل',
+  labelSizeHint: 'اختر حجم الورق الموجود في الطابعة حالياً.',
+  orientationHint: 'تسمح لك بتصميم الصفحة بالطول أو بالعرض، حسب اتجاه الطباعة الذي تريده.',
   tapeWidth: 'عرض الشريط', mm: 'مم', printer: 'الطابعة', printerModel: 'موديل الطابعة', autoDetect: 'تحديد تلقائي',
   density: 'الكثافة', copies: 'النسخ', feed: 'تغذية الورق', densityTest: 'اختبار الكثافة',
   printPreview: 'معاينة الطباعة', printPreviewHint: 'يُظهر الصور بتدرّج النقاط كما ستُطبع — والنص يبقى واضحاً.',

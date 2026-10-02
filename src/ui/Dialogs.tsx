@@ -76,7 +76,8 @@ function Thumb({ record, index }: { record: Record<string, string>; index: numbe
   useEffect(() => {
     const c = ref.current;
     if (!c) return;
-    const els = evaluateExpressions(substituteFields(elements, record));
+    // Expressions first, then data (see printCurrent in services/printing.ts).
+    const els = substituteFields(evaluateExpressions(elements), record);
     let dead = false;
     void prepareForRender(els).then(() => {
       if (dead) return;

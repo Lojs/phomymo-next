@@ -189,7 +189,11 @@ export const useStore = create<State>((set, get) => {
     checkpoint: (key = '') => {
       const now = Date.now();
       if (key && key === lastCheckpointKey && now - lastCheckpointAt < 1000) {
-        lastCheckpointAt = now;
+        // Coalesce, but do NOT advance the window: the anchor stays at the FIRST call of this
+        // burst. Advancing it (the previous behaviour) let a long slider drag — which emits a
+        // same-key call every few ms — stay coalesced forever, collapsing many seconds of edits
+        // into a single undo step. With a fixed anchor the burst is bounded to 1s, so a long drag
+        // still produces intermediate undo steps.
         return;
       }
       lastCheckpointKey = key;

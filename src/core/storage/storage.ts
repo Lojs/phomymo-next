@@ -17,14 +17,28 @@ export const KEYS = {
   AUTOSAVE: 'phomymo_autosave',
 } as const;
 
-function read<T>(key: string, fallback: T): T {
+/**
+ * Read + JSON.parse a key. `isValid` is optional shape validation: a structurally-valid but
+ * wrong-typed value (a legacy `"null"`, an array where an object belongs) would otherwise flow
+ * into callers that assume the type — e.g. `name in allDesigns()` throws a TypeError on null —
+ * and take down the designs list with no way to recover from the UI. Returning the fallback
+ * instead degrades to "no saved data", which the app already handles.
+ */
+function read<T>(key: string, fallback: T, isValid?: (v: unknown) => boolean): T {
   try {
     const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
+    if (!raw) return fallback;
+    const parsed: unknown = JSON.parse(raw);
+    if (isValid && !isValid(parsed)) return fallback;
+    return parsed as T;
   } catch {
     return fallback;
   }
 }
+
+/** A non-null, non-array object — the shape every key here except CUSTOM_PRINTERS expects. */
+const isRecord = (v: unknown): boolean => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isArray = (v: unknown): boolean => Array.isArray(v);
 
 function write(key: string, value: unknown): boolean {
   try {
@@ -49,7 +63,7 @@ export interface Design {
 
 export interface DesignSummary { name: string; savedAt: number; elementCount: number; isTemplate: boolean; recordCount: number }
 
-const allDesigns = () => read<Record<string, Design>>(KEYS.DESIGNS, {});
+const allDesigns = () => read<Record<string, Design>>(KEYS.DESIGNS, {}, isRecord);
 
 export function saveDesign(name: string, design: Design): void {
   const n = name.trim();
@@ -95,6 +109,31 @@ export function exportDesignJSON(name: string, design: Design): string {
   return JSON.stringify({ name, version: 3, ...design }, null, 2);
 }
 
+/** A finite number — the only thing safe to feed into geometry math (NaN/Infinity produce garbage). */
+const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * Reject an element whose geometry is not numeric. Without this an imported file with a string
+ * `x`/`rotation` loads fine and only fails much later — as NaN coordinates inside boundsOf /
+ * paintLabel, far from the import try/catch, so the user sees a blank or broken canvas instead of
+ * "invalid file". Element type is checked too, since drawElement switches on it.
+ */
+const isElement = (v: unknown): boolean => {
+  if (!isRecord(v)) return false;
+  const e = v as Record<string, unknown>;
+  const t = e.type;
+  if (t !== 'text' && t !== 'image' && t !== 'barcode' && t !== 'qr' && t !== 'shape') return false;
+  return num(e.x) && num(e.y) && num(e.width) && num(e.height) && num(e.rotation) && typeof e.id === 'string';
+};
+
+const isLabelSize = (v: unknown): boolean => {
+  if (!isRecord(v)) return false;
+  const s = v as Record<string, unknown>;
+  if (!num(s.width) || !num(s.height)) return false;
+  if (s.orientation !== undefined && s.orientation !== 'portrait' && s.orientation !== 'landscape') return false;
+  return true;
+};
+
 export function parseDesignJSON(json: string): { name: string | null; design: Design } {
   let data: any;
   try {
@@ -103,7 +142,9 @@ export function parseDesignJSON(json: string): { name: string | null; design: De
     throw new Error('Invalid JSON format');
   }
   if (!data || !Array.isArray(data.elements)) throw new Error('Invalid design format: missing elements');
-  if (!data.labelSize || typeof data.labelSize.width !== 'number') throw new Error('Invalid design format: missing label size');
+  if (!isLabelSize(data.labelSize)) throw new Error('Invalid design format: missing or malformed label size');
+  const bad = data.elements.findIndex((e: unknown) => !isElement(e));
+  if (bad !== -1) throw new Error(`Invalid design format: element ${bad + 1} is malformed`);
   const design: Design = { elements: data.elements, labelSize: data.labelSize };
   if (data.isTemplate) design.isTemplate = true;
   if (Array.isArray(data.templateFields)) design.templateFields = data.templateFields;
@@ -135,14 +176,14 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = { density: 6, copies: 1, feed: 32, printerModel: 'auto', tapeWidth: 12, ditherPreview: false };
 
-export const loadSettings = (): Settings => ({ ...DEFAULT_SETTINGS, ...read<Partial<Settings>>(KEYS.SETTINGS, {}) });
+export const loadSettings = (): Settings => ({ ...DEFAULT_SETTINGS, ...read<Partial<Settings>>(KEYS.SETTINGS, {}, isRecord) });
 export const saveSettings = (s: Settings) => void write(KEYS.SETTINGS, s);
 
 // ---- per-device memory (printer model, tape width) -------------------------------------------
 // Older versions stored a bare model string; newer ones an object. Read both.
 
 type DeviceEntry = string | { model?: string; tapeWidth?: number };
-const deviceMap = () => read<Record<string, DeviceEntry>>(KEYS.DEVICE_MAPPING, {});
+const deviceMap = () => read<Record<string, DeviceEntry>>(KEYS.DEVICE_MAPPING, {}, isRecord);
 const asObject = (e: DeviceEntry | undefined) => (typeof e === 'string' ? { model: e } : { ...(e ?? {}) });
 
 export const getDeviceModel = (name: string): string | null => asObject(deviceMap()[name]).model ?? null;
@@ -159,13 +200,13 @@ export const saveDeviceTapeWidth = (name: string, tapeWidth: number) => patchDev
 
 // ---- custom printer definitions ----------------------------------------------------------
 
-export const loadCustomPrinters = (): PrinterDefinition[] => read<PrinterDefinition[]>(KEYS.CUSTOM_PRINTERS, []);
+export const loadCustomPrinters = (): PrinterDefinition[] => read<PrinterDefinition[]>(KEYS.CUSTOM_PRINTERS, [], isArray);
 export const saveCustomPrinters = (list: PrinterDefinition[]) => void write(KEYS.CUSTOM_PRINTERS, list);
 
 // ---- multi-label presets -------------------------------------------------------------------
 
 export type MultiPreset = Omit<MultiLabelConfig, 'enabled' | 'cloneMode'>;
-export const loadMultiPresets = () => read<Record<string, MultiPreset>>(KEYS.MULTI_LABEL_PRESETS, {});
+export const loadMultiPresets = () => read<Record<string, MultiPreset>>(KEYS.MULTI_LABEL_PRESETS, {}, isRecord);
 export function saveMultiPreset(name: string, p: MultiPreset): void {
   write(KEYS.MULTI_LABEL_PRESETS, { ...loadMultiPresets(), [name.trim()]: p });
 }
@@ -177,5 +218,5 @@ export function deleteMultiPreset(name: string): void {
 
 // ---- autosave (work in progress survives a reload) ---------------------------------------------
 
-export const loadAutosave = (): Design | null => read<Design | null>(KEYS.AUTOSAVE, null);
+export const loadAutosave = (): Design | null => read<Design | null>(KEYS.AUTOSAVE, null, isRecord);
 export const saveAutosave = (d: Design) => void write(KEYS.AUTOSAVE, d);

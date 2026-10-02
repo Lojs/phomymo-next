@@ -120,7 +120,9 @@ export function exportJson() {
 
 async function labelCanvas(scale: number): Promise<HTMLCanvasElement> {
   const { elements, templateData } = st();
-  const merged = evaluateExpressions(templateData.length ? substituteFields(elements, templateData[0]) : elements);
+  // Expressions first, then data (see printCurrent in printing.ts).
+  const base = evaluateExpressions(elements);
+  const merged = templateData.length ? substituteFields(base, templateData[0]) : base;
   await prepareForRender(merged);
   const layout = st().layout();
   const cv = document.createElement('canvas');
