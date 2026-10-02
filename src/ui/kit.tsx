@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { Icon, type IconName } from './icons';
 import { useT } from '../i18n';
 
@@ -67,12 +67,26 @@ export function MenuButton({ label, items, onPick, layout = 'list', icon }: {
   );
 }
 
+/**
+ * A labelled form field.
+ *
+ * The `id` goes on the *control*, not on the wrapper. A `<label htmlFor>` may only point at a
+ * labelable element; pointing it at the wrapper <div> associated the label with nothing, so
+ * assistive tech could not announce any field's name and clicking a label did not focus its
+ * input. When the child already carries an id it is left alone, and a child that is not a single
+ * element (a fragment, or plain text) falls back to the wrapper — where an explicit aria-label on
+ * the control is the caller's responsibility.
+ */
 export function Field({ label, children, hint, inline }: { label: string; children: ReactNode; hint?: string; inline?: boolean }) {
   const id = useId();
+  const child = isValidElement(children) ? children : null;
+  const controlId = child && !(child.props as { id?: string }).id ? id : undefined;
   return (
     <div className={`field${inline ? ' field-inline' : ''}`}>
-      <label htmlFor={id} className="field-label">{label}</label>
-      <div className="field-control" id={id}>{children}</div>
+      <label htmlFor={controlId ?? id} className="field-label">{label}</label>
+      <div className="field-control" id={controlId ? undefined : id}>
+        {child && controlId ? cloneElement(child as ReactElement<{ id?: string }>, { id: controlId }) : children}
+      </div>
       {hint && <p className="field-hint">{hint}</p>}
     </div>
   );
