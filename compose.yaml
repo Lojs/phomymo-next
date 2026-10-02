@@ -3,19 +3,18 @@
 # Secrets live in ./.env — keep that file private.
 services:
   phomymo-next:
-    build: .
-    image: phomymo-next:latest
-    container_name: "phomymo-next-phomymo-1"
+    image: ghcr.io/lojs/phomymo-next:latest
+    container_name: "phomymo-next"
     restart: unless-stopped
     network_mode: bridge
     ports:
-      - "8444:443"
+      - 8444:443
     volumes:
-      - "phomymo-certs:/certs"
+      - ./phomymo-certs:/certs
     env_file:
       - .env
     environment:
-      - "TZ=Asia/Kuwait"
+      - TZ=UTC
 
 volumes:
   phomymo-certs:
