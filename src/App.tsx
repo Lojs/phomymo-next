@@ -23,24 +23,32 @@ function useKeyboardShortcuts() {
 
       if (isEditable(e.target)) return;
 
-      if (mod && e.key.toLowerCase() === 'z') {
+      // Key off `e.code` (the physical key), not `e.key` (the character the layout
+      // produces). With an Arabic keyboard the Z key reports e.key='س', so every
+      // Ctrl shortcut silently did nothing — which is exactly the audience this app
+      // is built for. e.code is layout-independent. Non-letter keys (arrows,
+      // Delete, Escape) keep matching on e.key since those never change.
+      const k = e.code.startsWith('Key') ? e.code.slice(3).toLowerCase() : e.key.toLowerCase();
+      const letter = (c: string) => k === c;
+
+      if (mod && letter('z')) {
         e.preventDefault();
         e.shiftKey ? st.redo() : st.undo();
         return;
       }
-      if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); st.redo(); return; }
-      if (mod && e.key.toLowerCase() === 'c') { e.preventDefault(); st.copy(); return; }
-      if (mod && e.key.toLowerCase() === 'v') { e.preventDefault(); st.paste(); return; }
-      if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); st.duplicate(); return; }
-      if (mod && e.key.toLowerCase() === 'g') { e.preventDefault(); e.shiftKey ? st.ungroup() : st.group(); return; }
-      if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); st.selectAll(); return; }
-      if (mod && e.key.toLowerCase() === 's') {
+      if (mod && letter('y')) { e.preventDefault(); st.redo(); return; }
+      if (mod && letter('c')) { e.preventDefault(); st.copy(); return; }
+      if (mod && letter('v')) { e.preventDefault(); st.paste(); return; }
+      if (mod && letter('d')) { e.preventDefault(); st.duplicate(); return; }
+      if (mod && letter('g')) { e.preventDefault(); e.shiftKey ? st.ungroup() : st.group(); return; }
+      if (mod && letter('a')) { e.preventDefault(); st.selectAll(); return; }
+      if (mod && letter('s')) {
         e.preventDefault();
         const name = st.designName ?? window.prompt('Design name')?.trim();
         if (name) saveCurrentDesign(name);
         return;
       }
-      if (mod && e.key.toLowerCase() === 'p') { e.preventDefault(); void printCurrent(); return; }
+      if (mod && letter('p')) { e.preventDefault(); void printCurrent(); return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && st.selectedIds.length) { e.preventDefault(); st.removeSelected(); return; }
       if (e.key === 'Escape') { st.select([]); return; }
 
