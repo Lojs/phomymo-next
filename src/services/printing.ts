@@ -322,14 +322,23 @@ export async function printBatch(recordIndexes: number[], signal: AbortSignal): 
   }
 }
 
+/**
+ * Print the density-test strips. This is a third print job on the same transport as
+ * printCurrent()/printBatch(), so it must claim the same `printing` slot: without it a density
+ * test started from the printer settings while a label is printing interleaves both byte streams
+ * and garbles the label. Claimed before the first await, for the same reason as printCurrent().
+ */
 export async function printDensityTest(): Promise<void> {
-  if (!(await ensureConnected())) return;
-  st().setPrint({ active: true, label: tr('densityTest'), current: 0, total: 1, sub: '' });
+  if (printing) return;
+  printing = true;
   try {
+    if (!(await ensureConnected())) return;
+    st().setPrint({ active: true, label: tr('densityTest'), current: 0, total: 1, sub: '' });
     await runOps(transport, encodeDensityTest(kind === 'ble'));
   } catch (e) {
     st().toast(`${tr('printFailed')}: ${(e as Error).message}`, 'error');
   } finally {
+    printing = false;
     st().setPrint(null);
   }
 }
