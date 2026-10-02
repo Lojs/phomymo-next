@@ -179,8 +179,11 @@ export function saveCurrentDesign(name: string): boolean {
 export async function importCsvFile(file: File): Promise<void> {
   try {
     const { records, errors } = parseCSV(await file.text());
-    if (!records.length && errors.length) {
-      st().toast(errors[0], 'error');
+    // "No records" is a failure however it happened. The old guard also required `errors.length`,
+    // so an empty file — which yields zero records AND zero errors — fell through and reported
+    // "Imported 0 records" as a success.
+    if (!records.length) {
+      st().toast(errors[0] ?? tr('csvNoRecords'), 'error');
       return;
     }
     st().setTemplateData(records);

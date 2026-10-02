@@ -49,7 +49,7 @@ export const ar: Record<Key, string> = {
   noFields: 'لا توجد حقول بعد — اكتب {{الاسم}} داخل عنصر نصي.', addRecord: 'إضافة سجل', importCsv: 'استيراد CSV', exportCsv: 'تصدير CSV',
   sampleData: 'ملء ببيانات تجريبية', clearData: 'مسح البيانات', preview: 'معاينة', printSelected: 'طباعة المحدد', printAll: 'طباعة الكل',
   selectAll: 'تحديد الكل', selectNone: 'إلغاء التحديد', recordsPrinting: 'طباعة {n} ملصقات',
-  rowsPrinting: 'طباعة {rows} صفوف ({n} ملصقات)', csvErrors: 'تنبيهات CSV', csvImported: 'تم استيراد {n} سجلات',
+  rowsPrinting: 'طباعة {rows} صفوف ({n} ملصقات)', csvErrors: 'تنبيهات CSV', csvImported: 'تم استيراد {n} سجلات', csvNoRecords: 'لا توجد سجلات في ملف CSV هذا',
   noRecordsToPrint: 'لا توجد سجلات للطباعة', printCancelled: 'تم إيقاف الطباعة', printedN: 'تمت طباعة {n} ملصقات', stop: 'إيقاف',
   record: 'السجل {n}',
   chooseModelTitle: 'ما هي هذه الطابعة؟', chooseModelBody: 'لم يتم التعرف على «{name}». اختر أقرب موديل ليُستخدم بروتوكول الطباعة الصحيح.',

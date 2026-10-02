@@ -55,7 +55,7 @@ export const en = {
   noFields: 'No fields yet — type {{Name}} in a text element.', addRecord: 'Add record', importCsv: 'Import CSV', exportCsv: 'Export CSV',
   sampleData: 'Fill sample data', clearData: 'Clear data', preview: 'Preview', printSelected: 'Print selected', printAll: 'Print all',
   selectAll: 'Select all', selectNone: 'Select none', recordsPrinting: 'Printing {n} labels',
-  rowsPrinting: 'Printing {rows} rows ({n} labels)', csvErrors: 'CSV warnings', csvImported: 'Imported {n} records',
+  rowsPrinting: 'Printing {rows} rows ({n} labels)', csvErrors: 'CSV warnings', csvImported: 'Imported {n} records', csvNoRecords: 'No records found in that CSV',
   noRecordsToPrint: 'No records to print', printCancelled: 'Printing cancelled', printedN: 'Printed {n} labels', stop: 'Stop',
   record: 'Record {n}',
   // connect / model
