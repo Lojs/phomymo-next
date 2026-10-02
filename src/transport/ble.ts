@@ -544,7 +544,11 @@ export class BLETransport {
         break;
 
       case 0x05: // Cover
-        value = data[2] === 0x98 ? 'open' : (data[2] === 0x99 ? 'closed' : 'unknown');
+        // 0x98 = closed, 0x99 = open. The upstream app had these two swapped, which displayed
+        // "Open" for a closed lid (and vice versa). Confirmed by two independent M02-family
+        // protocol references: sgrankin/phomemo PROTOCOL.md ("0x98 closed / 0x99 open") and the
+        // M08F reference's spontaneous-event table (`1a 05 99` lid opened, `1a 05 98` lid closed).
+        value = data[2] === 0x98 ? 'closed' : (data[2] === 0x99 ? 'open' : 'unknown');
         field = 'cover';
         this.printerInfo.cover = value;
         break;
