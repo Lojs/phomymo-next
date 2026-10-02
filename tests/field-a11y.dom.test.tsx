@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import React from 'react';
-import { Field } from '../src/ui/kit';
+import { Field, NumberInput, Slider, Select, Toggle } from '../src/ui/kit';
 
 beforeEach(() => cleanup());
 
@@ -58,5 +58,30 @@ describe('Field label association', () => {
     for (const l of ['ID', 'Name', 'Width (bytes)']) {
       expect(() => screen.getByLabelText(l), `field "${l}" is not reachable by its label`).not.toThrow();
     }
+  });
+});
+
+describe('Field forwards the id through composite controls', () => {
+  // NumberInput and Slider render a wrapper <span> around the real <input>. Before this was
+  // fixed, the id landed on the span, so the label pointed at a non-labelable element again —
+  // the same defect as the bare-input case, just one level deeper.
+  it('a NumberInput inside a Field is reachable by the field label', () => {
+    render(<Field label="Width"><NumberInput value={42} onChange={() => {}} /></Field>);
+    expect((screen.getByLabelText('Width') as HTMLInputElement).value).toBe('42');
+  });
+
+  it('a Slider inside a Field is reachable by the field label', () => {
+    render(<Field label="Rotation"><Slider value={0} min={0} max={359} onChange={() => {}} /></Field>);
+    expect(screen.getByLabelText('Rotation')).toBeTruthy();
+  });
+
+  it('a Select inside a Field is reachable by the field label', () => {
+    render(<Field label="Protocol"><Select value="a" onChange={() => {}}><option value="a">a</option></Select></Field>);
+    expect(screen.getByLabelText('Protocol')).toBeTruthy();
+  });
+
+  it('a Toggle inside a Field is reachable by the field label', () => {
+    render(<Field label="Tape"><Toggle checked={false} onChange={() => {}} label="Tape printer" /></Field>);
+    expect(screen.getByLabelText('Tape printer')).toBeTruthy();
   });
 });

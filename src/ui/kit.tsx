@@ -100,8 +100,8 @@ export function Field({ label, children, hint, inline }: { label: string; childr
  */
 const formatNum = (v: number) => (Number.isFinite(v) ? String(Math.round(v * 100) / 100) : '');
 
-export function NumberInput({ value, onChange, min, max, step = 1, unit, width, disabled, title }: {
-  value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number; unit?: string; width?: number; disabled?: boolean; title?: string;
+export function NumberInput({ value, onChange, min, max, step = 1, unit, width, disabled, title, id }: {
+  value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number; unit?: string; width?: number; disabled?: boolean; title?: string; id?: string;
 }) {
   const [draft, setDraft] = useState(() => formatNum(value));
   const focused = useRef(false);
@@ -129,6 +129,7 @@ export function NumberInput({ value, onChange, min, max, step = 1, unit, width, 
   return (
     <span className="num" style={width ? { width } : undefined}>
       <input
+        id={id}
         type="text" inputMode="decimal" value={draft} step={step} disabled={disabled} title={title} aria-label={title}
         onFocus={(e) => { focused.current = true; e.currentTarget.select(); }}
         onChange={(e) => setDraft(e.target.value)}
@@ -143,10 +144,10 @@ export function NumberInput({ value, onChange, min, max, step = 1, unit, width, 
   );
 }
 
-export function Slider({ value, onChange, min, max, step = 1, disabled }: { value: number; onChange: (v: number) => void; min: number; max: number; step?: number; disabled?: boolean }) {
+export function Slider({ value, onChange, min, max, step = 1, disabled, id }: { value: number; onChange: (v: number) => void; min: number; max: number; step?: number; disabled?: boolean; id?: string }) {
   return (
     <span className={`slider${disabled ? ' is-disabled' : ''}`}>
-      <input type="range" value={value} min={min} max={max} step={step} disabled={disabled} onChange={(e) => onChange(parseFloat(e.target.value))} />
+      <input id={id} type="range" value={value} min={min} max={max} step={step} disabled={disabled} onChange={(e) => onChange(parseFloat(e.target.value))} />
       <NumberInput value={value} onChange={onChange} min={min} max={max} step={step} width={64} disabled={disabled} />
     </span>
   );
