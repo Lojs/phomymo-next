@@ -12,5 +12,12 @@ export default defineConfig({
   envPrefix: ['VITE_', 'APP_'],
   define: { 'import.meta.env.APP_VERSION': JSON.stringify(pkg.version) },
   build: { target: 'es2022', chunkSizeWarningLimit: 900 },
-  test: { environment: 'node', include: ['tests/**/*.test.ts'] },
+  test: {
+    // Pure-logic tests run in plain node (fast, no DOM). Component tests opt into jsdom with a
+    // `// @vitest-environment jsdom` docblock, and use the .dom.test.tsx suffix so the include
+    // pattern picks them up.
+    environment: 'node',
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
+    setupFiles: ['tests/setup-dom.ts'],
+  },
 });
