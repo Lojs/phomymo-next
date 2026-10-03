@@ -19,5 +19,24 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     setupFiles: ['tests/setup-dom.ts'],
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts', 'src/**/*.tsx'],
+      exclude: [
+        'src/main.tsx',          // entry point
+        'src/vite-env.d.ts',
+        'src/**/*.d.ts',
+        'src/transport/webapis.d.ts',
+      ],
+      // A single global figure hides which layer is thin, so per-file numbers matter here.
+      reporter: ['text-summary', 'text'],
+      thresholds: {
+        // The suite is at 80% statements today; hold the line rather than let it slide.
+        statements: 80,
+        branches: 70,
+        functions: 75,
+        lines: 80,
+      },
+    },
   },
 });
