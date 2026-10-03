@@ -7,7 +7,6 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
-import React from 'react';
 import { TopBar } from '../src/ui/TopBar';
 import { useStore } from '../src/state/store';
 import * as printing from '../src/services/printing';

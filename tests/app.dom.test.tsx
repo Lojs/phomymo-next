@@ -7,7 +7,6 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor, act } from '@testing-library/react';
-import React from 'react';
 import App from '../src/App';
 import { useStore } from '../src/state/store';
 import { createText } from '../src/core/model/elements';

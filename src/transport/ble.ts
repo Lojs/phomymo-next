@@ -9,6 +9,7 @@
  */
 
 import { BLE } from './constants';
+import { trace } from '../core/trace';
 
 // Printer query commands (format: [0x1F, 0x11, X])
 const QUERY_COMMANDS = {
@@ -96,14 +97,14 @@ export class BLETransport {
 
     // Already connected?
     if (this.isConnected()) {
-      console.log('Already connected');
+      trace('Already connected');
       return true;
     }
 
     // Try reconnecting to known device (from this session)
     if (this.device) {
       try {
-        console.log('Reconnecting to', this.device.name);
+        trace('Reconnecting to', this.device.name);
         await this.retryWithBackoff(
           () => this.connectGATT(),
           BLE.MAX_RETRIES,
@@ -111,7 +112,7 @@ export class BLETransport {
         );
         return true;
       } catch (e) {
-        console.log('Reconnect failed after retries:', e.message);
+        trace('Reconnect failed after retries:', e.message);
         this.device = null;
       }
     }
@@ -121,20 +122,20 @@ export class BLETransport {
     // the user can select the device showing signal strength.
     if ('getDevices' in navigator.bluetooth) {
       const devices = await navigator.bluetooth.getDevices();
-      console.log('Skipping paired devices (may be ghosts):', devices.map((d: any) => d.name).join(', ') || 'none');
+      trace('Skipping paired devices (may be ghosts):', devices.map((d: any) => d.name).join(', ') || 'none');
     }
 
     // No paired device worked - show picker
     // May need multiple picker selections due to "Unsupported device" issue on first pairing
     for (let pickerAttempt = 0; pickerAttempt < 3; pickerAttempt++) {
-      console.log('Showing device picker...');
+      trace('Showing device picker...');
 
       // Include all potential service UUIDs for different printer models
       const optionalServices = BLE.ALT_SERVICE_UUIDS || [BLE.SERVICE_UUID];
 
       if (showAllDevices) {
         // User requested to see all devices (Shift+Click on Connect)
-        console.log('Showing ALL Bluetooth devices (filter bypassed)');
+        trace('Showing ALL Bluetooth devices (filter bypassed)');
         this.device = await navigator.bluetooth.requestDevice({
           acceptAllDevices: true,
           optionalServices,
@@ -157,7 +158,7 @@ export class BLETransport {
             optionalServices,
           });
         } catch (filterError) {
-          console.log('Name filter failed, trying acceptAllDevices:', filterError.message);
+          trace('Name filter failed, trying acceptAllDevices:', filterError.message);
           this.device = await navigator.bluetooth.requestDevice({
             acceptAllDevices: true,
             optionalServices,
@@ -166,10 +167,10 @@ export class BLETransport {
       }
 
       // Log device name prominently so users can report unrecognized devices
-      console.log('═══════════════════════════════════════════════════');
-      console.log('SELECTED DEVICE NAME:', this.device.name);
-      console.log('If this device is not recognized, please report this name');
-      console.log('═══════════════════════════════════════════════════');
+      trace('═══════════════════════════════════════════════════');
+      trace('SELECTED DEVICE NAME:', this.device.name);
+      trace('If this device is not recognized, please report this name');
+      trace('═══════════════════════════════════════════════════');
 
       // Wait for device to be ready
       await this.waitForDeviceReady();
@@ -180,14 +181,14 @@ export class BLETransport {
           () => this.connectGATT(),
           BLE.MAX_RETRIES,
           BLE.INITIAL_RETRY_DELAY_MS,
-          (attempt: number) => console.log(`Connection attempt ${attempt} failed, retrying...`)
+          (attempt: number) => trace(`Connection attempt ${attempt} failed, retrying...`)
         );
         return true; // Success!
       } catch (error) {
         // If we get "Unsupported device", the device object from this requestDevice is broken
         // Clear it and try getting a fresh one from the picker
         if (error.message && error.message.includes('Unsupported')) {
-          console.log('Device object appears broken, will request fresh device from picker...');
+          trace('Device object appears broken, will request fresh device from picker...');
           this.device = null;
           // Small delay before showing picker again
           await this.delay(500);
@@ -207,7 +208,7 @@ export class BLETransport {
   async waitForDeviceReady(timeout = 5000) {
     // Check if watchAdvertisements is supported
     if (!this.device.watchAdvertisements) {
-      console.log('watchAdvertisements not supported, using 3s delay for pairing to complete...');
+      trace('watchAdvertisements not supported, using 3s delay for pairing to complete...');
       await this.delay(3000);
       return;
     }
@@ -221,7 +222,7 @@ export class BLETransport {
         if (!resolved) {
           resolved = true;
           abortController.abort();
-          console.log('Device ready timeout, proceeding anyway...');
+          trace('Device ready timeout, proceeding anyway...');
           resolve();
         }
       }, timeout);
@@ -232,20 +233,20 @@ export class BLETransport {
           resolved = true;
           clearTimeout(timeoutId);
           abortController.abort();
-          console.log('Device advertisement received, device is ready');
+          trace('Device advertisement received, device is ready');
           resolve();
         }
       }, { once: true });
 
       // Start watching
-      console.log('Waiting for device to be ready...');
+      trace('Waiting for device to be ready...');
       this.device.watchAdvertisements({ signal: abortController.signal })
         .catch((e: any) => {
           // watchAdvertisements may fail or be aborted, that's okay
           if (!resolved) {
             resolved = true;
             clearTimeout(timeoutId);
-            console.log('watchAdvertisements ended:', e.message);
+            trace('watchAdvertisements ended:', e.message);
             resolve();
           }
         });
@@ -259,7 +260,7 @@ export class BLETransport {
     // Setup disconnect handler (only once per device)
     if (!this.device._hasDisconnectHandler) {
       this.device.addEventListener('gattserverdisconnected', () => {
-        console.log('Disconnected');
+        trace('Disconnected');
         this.connected = false;
         this.server = null;
         this.service = null;
@@ -282,7 +283,7 @@ export class BLETransport {
     this.writeChar = null;
     this.notifyChar = null;
 
-    console.log('Connecting GATT...');
+    trace('Connecting GATT...');
     this.server = await this.device.gatt.connect();
 
     // Small delay after GATT connect before service discovery
@@ -290,19 +291,19 @@ export class BLETransport {
     await this.delay(100);
 
     // Try to find a working service (some printers use different UUIDs)
-    console.log('Getting service...');
+    trace('Getting service...');
     const servicesToTry = BLE.ALT_SERVICE_UUIDS || [BLE.SERVICE_UUID];
     let lastError = null;
 
     for (const serviceUuid of servicesToTry) {
       try {
-        console.log(`Trying service UUID: ${typeof serviceUuid === 'number' ? '0x' + serviceUuid.toString(16) : serviceUuid}`);
+        trace(`Trying service UUID: ${typeof serviceUuid === 'number' ? '0x' + serviceUuid.toString(16) : serviceUuid}`);
         this.service = await this.server.getPrimaryService(serviceUuid);
-        console.log('Service found!');
+        trace('Service found!');
         break;
       } catch (e) {
         lastError = e;
-        console.log(`Service ${typeof serviceUuid === 'number' ? '0x' + serviceUuid.toString(16) : serviceUuid} not found`);
+        trace(`Service ${typeof serviceUuid === 'number' ? '0x' + serviceUuid.toString(16) : serviceUuid} not found`);
       }
     }
 
@@ -310,12 +311,12 @@ export class BLETransport {
       throw new Error(`No compatible Bluetooth service found. Last error: ${lastError?.message}`);
     }
 
-    console.log('Getting characteristics...');
+    trace('Getting characteristics...');
     this.writeChar = await this.service.getCharacteristic(BLE.WRITE_CHAR_UUID);
 
     // Log characteristic properties for debugging
     const props = this.writeChar.properties;
-    console.log('Write characteristic properties:', {
+    trace('Write characteristic properties:', {
       write: props.write,
       writeWithoutResponse: props.writeWithoutResponse,
       read: props.read,
@@ -325,7 +326,7 @@ export class BLETransport {
     // Determine if we need to use writeValue instead of writeValueWithoutResponse
     this._useWriteWithResponse = !props.writeWithoutResponse && props.write;
     if (this._useWriteWithResponse) {
-      console.log('Device requires writeValue (with response)');
+      trace('Device requires writeValue (with response)');
     }
 
     try {
@@ -338,13 +339,13 @@ export class BLETransport {
       };
       this.notifyChar.addEventListener('characteristicvaluechanged', this._notificationHandler);
 
-      console.log('Notifications enabled');
+      trace('Notifications enabled');
     } catch (e) {
       console.warn('Notifications not available:', e.message);
     }
 
     this.connected = true;
-    console.log('Connected to', this.device.name);
+    trace('Connected to', this.device.name);
   }
 
   /**
@@ -431,7 +432,7 @@ export class BLETransport {
         clearTimeout(timer);
         this.notifyChar.removeEventListener('characteristicvaluechanged', handler);
         const data = new Uint8Array(event.target.value.buffer);
-        console.log('[BLE Response]', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
+        trace('[BLE Response]', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
         resolve(event.target.value);
       };
 
@@ -482,7 +483,7 @@ export class BLETransport {
         lastError = error;
         if (attempt < maxRetries) {
           const waitTime = delay * Math.pow(2, attempt);
-          console.log(`Attempt ${attempt + 1} failed: ${error.message}. Retrying in ${waitTime}ms...`);
+          trace(`Attempt ${attempt + 1} failed: ${error.message}. Retrying in ${waitTime}ms...`);
           if (onRetry) onRetry(attempt + 1, error);
           await this.delay(waitTime);
         }
@@ -513,17 +514,17 @@ export class BLETransport {
    */
   handleNotification(event: any) {
     const data = new Uint8Array(event.target.value.buffer);
-    console.log('[BLE <<<]', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
+    trace('[BLE <<<]', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
 
     if (data.length < 2) return;
 
     // Handle special result/printer type responses (2-3 bytes)
     if (data.length === 2 && data[0] === 0x01) {
-      console.log('Result:', data[1]);
+      trace('Result:', data[1]);
       return;
     }
     if (data.length === 3 && data[0] === 0x02) {
-      console.log('Printer type:', data[1]);
+      trace('Printer type:', data[1]);
       return;
     }
 
@@ -623,11 +624,11 @@ export class BLETransport {
         break;
 
       default:
-        console.log('Unknown response type:', type.toString(16));
+        trace('Unknown response type:', type.toString(16));
         return;
     }
 
-    console.log(`Printer ${field}:`, value);
+    trace(`Printer ${field}:`, value);
 
     // Notify callback if set
     if (this.onPrinterInfo) {
@@ -672,7 +673,7 @@ export class BLETransport {
       throw new Error(`Unknown query type: ${queryType}`);
     }
 
-    console.log(`Querying ${queryType}...`);
+    trace(`Querying ${queryType}...`);
     await this.send(new Uint8Array(command));
   }
 
@@ -684,7 +685,7 @@ export class BLETransport {
       throw new Error('Not connected');
     }
 
-    console.log('Querying all printer info...');
+    trace('Querying all printer info...');
 
     // Query each type with a small delay between. Cover is included: the printer also pushes it
     // unprompted when the lid moves, but asking on connect means a lid that was already closed

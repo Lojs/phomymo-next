@@ -8,7 +8,6 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
-import React from 'react';
 import { Stage } from '../src/ui/stage/Stage';
 import { useStore } from '../src/state/store';
 import { createText, createShape } from '../src/core/model/elements';
@@ -22,8 +21,6 @@ beforeEach(() => {
   // jsdom reports a zero-size scroller, so a fit would drive zoom to its minimum; keep it off.
   useStore.getState().setLabelSize({ width: 40, height: 30 });
 });
-
-const stageEl = () => document.querySelector('.stage')!;
 
 describe('structure', () => {
   it('renders a canvas and a pointer overlay', () => {

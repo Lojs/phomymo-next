@@ -8,7 +8,6 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
-import React from 'react';
 import { Toolbox } from '../src/ui/Toolbox';
 import { useStore } from '../src/state/store';
 import { SHAPES } from '../src/ui/shapes';

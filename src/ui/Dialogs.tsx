@@ -5,7 +5,7 @@ import { APP_VERSION } from '../version';
 import { Button, Field, Modal, NumberInput, Segmented, Select, Slider, Toggle } from './kit';
 import { Icon } from './icons';
 import { deleteDesign, listDesigns, loadDesign, renameDesign, designExists, saveCustomPrinters, loadCustomPrinters, deleteMultiPreset, loadMultiPresets, saveMultiPreset, saveDeviceModel, DEFAULT_SETTINGS } from '../core/storage/storage';
-import { exportCsv, exportJson, exportPdf, exportPng, importCsvFile, importDesignFile, saveCurrentDesign } from '../services/actions';
+import { exportCsv, exportJson, exportPdf, exportPng, importCsvFile, importDesignAs, importDesignFile, readDesignFile, saveCurrentDesign } from '../services/actions';
 import { cancelBatch, cancelCurrentPrint, isBatchRunning, isPrinting, printDensityTest, rememberModel, runBatch } from '../services/printing';
 import { BUILTIN_PRINTERS, type PrinterDefinition } from '../core/printers/definitions';
 import { LIMITS } from '../core/printers/presets';
@@ -29,7 +29,7 @@ export function DesignsDialog() {
   const save = () => {
     const n = name.trim();
     if (!n) return;
-    if (n !== s.designName && designExists(n) && !window.confirm(`${n}?`)) return;
+    if (n !== s.designName && designExists(n) && !window.confirm(t('confirmOverwriteName', { name: n }))) return;
     if (saveCurrentDesign(n)) setVersion((v) => v + 1);
   };
 
@@ -45,7 +45,25 @@ export function DesignsDialog() {
         <Button icon="upload" onClick={exportJson}>{t('exportJson')}</Button>
         <Button icon="image" onClick={() => void exportPng()}>{t('exportPng')}</Button>
         <Button icon="upload" onClick={() => void exportPdf()}>{t('exportPdf')}</Button>
-        <input ref={file} type="file" accept="application/json,.json" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void importDesignFile(f).then(() => { setVersion((v) => v + 1); close(); }); e.target.value = ''; }} />
+        <input
+          ref={file}
+          type="file"
+          accept="application/json,.json"
+          hidden
+          onChange={async (e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (!f) return;
+            // Ask before replacing. importDesignFile reports the clash instead of silently
+            // overwriting, so the confirmation happens here where it can be translated.
+            const result = await importDesignFile(f);
+            if (result.ok) { setVersion((v) => v + 1); close(); return; }
+            if (!result.conflict) return;                      // already reported the error
+            if (!window.confirm(t('confirmOverwriteName', { name: result.conflict }))) return;
+            const parsed = await readDesignFile(f);
+            if (importDesignAs(parsed.name, parsed.design)) { setVersion((v) => v + 1); close(); }
+          }}
+        />
       </div>
 
       {items.length === 0 ? <p className="empty-note">{t('noDesigns')}</p> : (
@@ -57,7 +75,7 @@ export function DesignsDialog() {
                 <span>{t('elementsCount', { n: d.elementCount })}{d.recordCount ? ` · ${t('recordsCount', { n: d.recordCount })}` : ''}{d.savedAt ? ` · ${new Date(d.savedAt).toLocaleDateString(s.lang === 'ar' ? 'ar' : undefined)}` : ''}</span>
               </button>
               <Button variant="ghost" icon="text" title={t('rename')} aria-label={t('rename')} onClick={() => { const n = window.prompt(t('rename'), d.name)?.trim(); if (n && n !== d.name) { try { renameDesign(d.name, n); if (s.designName === d.name) useStore.setState({ designName: n }); setVersion((v) => v + 1); } catch (e) { s.toast((e as Error).message, 'error'); } } }} />
-              <Button variant="ghost" icon="trash" title={t('delete')} aria-label={t('delete')} onClick={() => { if (window.confirm(`${t('delete')}: ${d.name}?`)) { deleteDesign(d.name); setVersion((v) => v + 1); } }} />
+              <Button variant="ghost" icon="trash" title={t('delete')} aria-label={t('delete')} onClick={() => { if (window.confirm(t('confirmDeleteNamed', { name: d.name }))) { deleteDesign(d.name); setVersion((v) => v + 1); } }} />
             </li>
           ))}
         </ul>

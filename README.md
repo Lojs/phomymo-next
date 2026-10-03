@@ -107,7 +107,8 @@ network can reach it — you only need to tell the container which address to
 put in its certificate.
 
 1. Find this machine's LAN IP — `hostname -I` on Linux, or check your router.
-2. Put it in `.env`:
+2. Put it in `.env` (optional — without it the app assumes `localhost`, which
+   works for a local trial):
    ```sh
    PHOMYMO_DOMAIN=192.168.1.50
    ```
@@ -125,16 +126,20 @@ and USB printing need.
 <details>
 <summary>Using your own certificate instead</summary>
 
-Drop `cert.pem` and `key.pem` into the `phomymo-certs` volume and restart:
+Copy `cert.pem` and `key.pem` into `./phomymo-certs/` on the host and restart:
 
 ```sh
-docker compose cp ./cert.pem phomymo-next:/certs/cert.pem
-docker compose cp ./key.pem  phomymo-next:/certs/key.pem
+cp ./cert.pem ./phomymo-certs/cert.pem
+cp ./key.pem  ./phomymo-certs/key.pem
 docker compose restart
 ```
 
-If both files already exist on startup, the self-signed one is never
-generated.
+`./phomymo-certs` is a **bind mount**, not a named volume, so the files are plain
+files you can read, replace or back up — and `docker compose down -v` leaves
+them alone. If both files exist at startup the self-signed one is not generated,
+and a `domain` file records which address they were issued for: change
+`PHOMYMO_DOMAIN` and the certificate is regenerated on the next start, rather
+than leaving a certificate that now reports a name mismatch.
 
 </details>
 
@@ -151,15 +156,18 @@ generated.
 | View logs | `docker compose logs -f` |
 | Rebuild after changing source | `docker compose up -d --build` |
 | Check it's running | `docker compose ps` |
-| Full reset (drops the cert volume) | `docker compose down -v` |
+| Full reset | `docker compose down` |
+| Reset including the certificate | `rm -rf phomymo-certs && docker compose up -d` |
 
 ---
 
 ## Where your data lives
 
-The **only** thing persisted server-side is the HTTPS certificate (the
-`phomymo-certs` volume, mounted at `/certs`), so it survives restarts and
-rebuilds instead of showing a fresh browser warning every time.
+The **only** thing persisted server-side is the HTTPS certificate, in
+`./phomymo-certs` on the host (mounted at `/certs`). It survives restarts and
+rebuilds instead of showing a fresh browser warning every time, and it warns on
+startup if it is within 30 days of expiry. Because it is a bind mount,
+`docker compose down -v` does **not** remove it.
 
 Everything else — your designs, settings, printer memory, template data —
 lives in the browser's `localStorage` on each device that opens the app. The
@@ -179,9 +187,16 @@ npm run typecheck
 
 ### Tests
 
-255 tests. Most of them are **golden tests**: they compare this rewrite's
-output byte-for-byte against a frozen copy of the original implementation in
-`tests/legacy/`, so a refactor can't quietly change what reaches the paper.
+**1078 tests** across 39 files. A core of them are **golden tests**: they compare this
+rewrite's output byte-for-byte against a frozen copy of the original implementation
+in `tests/legacy/`, so a refactor can't quietly change what reaches the paper.
+
+`npm test` runs the suite; `npm run typecheck` and `npm run build` are separate, and
+CI runs all three before anything is published. Two places deliberately diverge from
+the legacy behaviour — a CSV file that is empty is reported as empty instead of
+parsing as one nameless column, and a malformed CSV row is reported by its real line
+number — and both are asserted explicitly rather than left to drift. See
+`tests/golden-raster-templates.test.ts` for what each one changed and why.
 
 ---
 
@@ -233,7 +248,7 @@ that work as a typed, component-based application.
 - `src/transport/` — Web Bluetooth and WebUSB.
 - `tests/legacy/` — a frozen copy of the original, kept so the golden tests can
   assert byte-identical output.
-- `tests/golden-*.test.ts` — 193 of the 255 tests compare against that legacy
+- `tests/golden-*.test.ts` — 193 of the 1078 tests compare against that legacy
   code directly.
 
 **New here:** the React component architecture, the TypeScript data model, the

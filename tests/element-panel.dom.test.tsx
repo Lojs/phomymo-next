@@ -6,9 +6,8 @@
  * per-type controls. The tests drive it through the real store and assert on the resulting state,
  * since that is what ends up on the label.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
-import React from 'react';
 import { ElementPanel } from '../src/ui/ElementPanel';
 import { useStore } from '../src/state/store';
 import { createText, createBarcode, createQR, createShape, createImage } from '../src/core/model/elements';
@@ -56,7 +55,7 @@ describe('visibility', () => {
 
 describe('geometry', () => {
   it('committing X moves the element', () => {
-    const el = withElement(createText('A', { x: 10, y: 20 }));
+    withElement(createText('A', { x: 10, y: 20 }));
     render(<ElementPanel />);
     const x = screen.getByDisplayValue('10');
     fireEvent.focus(x);

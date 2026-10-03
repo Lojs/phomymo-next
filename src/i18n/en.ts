@@ -13,6 +13,8 @@ export const en = {
   exportJson: 'Export JSON', importJson: 'Import JSON', exportPng: 'Export PNG', exportPdf: 'Export PDF',
   designName: 'Design name', noDesigns: 'No saved designs yet. Save your current label to find it here.',
   saved: 'Saved', deleted: 'Deleted', imported: 'Imported', rename: 'Rename', untitled: 'Untitled',
+  confirmOverwriteName: 'A design named "{name}" already exists. Replace it?',
+  confirmDeleteNamed: 'Delete "{name}"? This cannot be undone.',
   confirmNew: 'Start a new design? Unsaved changes are kept in undo history only.',
   elementsCount: '{n} elements', recordsCount: '{n} records',
   // label panel

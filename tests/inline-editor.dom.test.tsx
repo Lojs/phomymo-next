@@ -8,7 +8,6 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
-import React from 'react';
 import { InlineTextEditor } from '../src/ui/stage/InlineTextEditor';
 import { useStore } from '../src/state/store';
 import { createText } from '../src/core/model/elements';

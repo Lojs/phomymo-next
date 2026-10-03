@@ -5,9 +5,8 @@
  * The uncovered surface here is the file-input side: loading an image or a PDF's first page and
  * placing it on the label. These tests drive the real code with synthetic files.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
-import React from 'react';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { cleanup } from '@testing-library/react';
 import { addImageFile, replaceImageFile, loadImageFile, addText, addBarcode, addQR, addShape } from '../src/services/actions';
 import { useStore } from '../src/state/store';
 import { createImage } from '../src/core/model/elements';

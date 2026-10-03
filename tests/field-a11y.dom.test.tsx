@@ -11,7 +11,6 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
-import React from 'react';
 import { Field, NumberInput, Slider, Select, Toggle } from '../src/ui/kit';
 
 beforeEach(() => cleanup());

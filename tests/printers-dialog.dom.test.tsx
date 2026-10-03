@@ -8,7 +8,6 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
-import React from 'react';
 import { PrintersDialog } from '../src/ui/Dialogs';
 import { useStore } from '../src/state/store';
 import { loadCustomPrinters, saveCustomPrinters } from '../src/core/storage/storage';

@@ -3,7 +3,7 @@ import { useStore } from '../state/store';
 import { createBarcode, createImage, createQR, createShape, createText, type LabelElement, type ShapeType } from '../core/model/elements';
 import { paintLabel, prepareForRender } from '../core/render/label';
 import { evaluateExpressions, parseCSV, substituteFields, toCSV } from '../core/template/template';
-import { exportDesignJSON, parseDesignJSON, saveDesign, type Design } from '../core/storage/storage';
+import { designExists, exportDesignJSON, parseDesignJSON, saveDesign, type Design } from '../core/storage/storage';
 import { translate } from '../i18n';
 
 const st = () => useStore.getState();
@@ -52,14 +52,21 @@ async function loadPdfFirstPage(file: File): Promise<LoadedImage> {
   const pdfjs = await import('pdfjs-dist');
   const worker = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
   pdfjs.GlobalWorkerOptions.workerSrc = worker;
-  const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+  // Keep the loading task, not just the document: destroy() — which tears down the worker — belongs
+  // to the task in pdf.js 6. Without it, importing several PDFs in one session accumulated workers.
+  const task = pdfjs.getDocument({ data: await file.arrayBuffer() });
+  const doc = await task.promise;
   const page = await doc.getPage(1);
   const viewport = page.getViewport({ scale: 2 });
   const cv = document.createElement('canvas');
   cv.width = viewport.width;
   cv.height = viewport.height;
-  await page.render({ canvas: cv, canvasContext: cv.getContext('2d')!, viewport }).promise;
-  return { dataUrl: cv.toDataURL('image/png'), width: cv.width, height: cv.height };
+  try {
+    await page.render({ canvas: cv, canvasContext: cv.getContext('2d')!, viewport }).promise;
+    return { dataUrl: cv.toDataURL('image/png'), width: cv.width, height: cv.height };
+  } finally {
+    await task.destroy();
+  }
 }
 
 export async function loadImageFile(file: File): Promise<LoadedImage> {
@@ -167,16 +174,57 @@ export async function exportPdf() {
 
 // ---- import -----------------------------------------------------------------------------------
 
-export async function importDesignFile(file: File): Promise<void> {
+/**
+ * Read a design file and open it.
+ *
+ * Refuses to overwrite an existing design of the same name. Previously it called saveDesign()
+ * unconditionally, so importing a file whose name matched a saved design replaced it with no question
+ * and no undo — the user only found out when the design they had been editing was gone.
+ *
+ * The decision belongs to the caller, because only it can ask: returning the conflicting name lets the
+ * UI show a translated confirmation, and keeps this function testable without a global confirm().
+ */
+export async function importDesignFile(file: File): Promise<{ ok: boolean; name: string | null; conflict: string | null }> {
+  let finalName: string;
+  let design: Design;
   try {
-    const { name, design } = parseDesignJSON(await file.text());
-    const finalName = name || file.name.replace(/\.json$/i, '');
+    const parsed = parseDesignJSON(await file.text());
+    design = parsed.design;
+    finalName = parsed.name || file.name.replace(/\.json$/i, '');
+  } catch (e) {
+    st().toast((e as Error).message || tr('errorFile'), 'error');
+    return { ok: false, name: null, conflict: null };
+  }
+  if (designExists(finalName)) return { ok: false, name: finalName, conflict: finalName };
+  try {
     saveDesign(finalName, design);
     st().loadDesign(design, finalName);
     st().toast(tr('imported'), 'success');
+    return { ok: true, name: finalName, conflict: null };
   } catch (e) {
     st().toast((e as Error).message || tr('errorFile'), 'error');
+    return { ok: false, name: finalName, conflict: null };
   }
+}
+
+/** Write a design the caller has already confirmed the name for. */
+export function importDesignAs(name: string, design: Design): boolean {
+  try {
+    saveDesign(name, design);
+    st().loadDesign(design, name);
+    st().toast(tr('imported'), 'success');
+    return true;
+  } catch (e) {
+    st().toast((e as Error).message || tr('errorFile'), 'error');
+    return false;
+  }
+}
+
+/** Parse a design file without saving anything — used to preview it before a confirmation. */
+export async function readDesignFile(file: File): Promise<{ name: string; design: Design }> {
+  const parsed = parseDesignJSON(await file.text());
+  const name = parsed.name || file.name.replace(/\.json$/i, '');
+  return { name, design: parsed.design };
 }
 
 export function saveCurrentDesign(name: string): boolean {

@@ -2,6 +2,8 @@
  * WebUSB transport for Phomymo
  */
 
+import { trace } from '../core/trace';
+
 // Known USB IDs for Phomemo printers
 const USB_DEVICE_FILTERS = [
   // Standard Phomemo printers (M110, M220, etc.)
@@ -62,31 +64,31 @@ export class USBTransport {
   async tryReconnect() {
     // If already connected, verify connection
     if (this.connected && this.device) {
-      console.log('Already connected to', this.device.productName);
+      trace('Already connected to', this.device.productName);
       return true;
     }
 
     // Try to get previously authorized devices
     try {
       const devices = await navigator.usb.getDevices();
-      console.log('Found authorized USB devices:', devices.length);
+      trace('Found authorized USB devices:', devices.length);
 
       // Get known vendor IDs from filter list
       const knownVendorIds = [...new Set(USB_DEVICE_FILTERS.map(f => f.vendorId))];
 
       for (const device of devices) {
         if (knownVendorIds.includes(device.vendorId)) {
-          console.log('Found authorized Phomemo device:', device.productName);
+          trace('Found authorized Phomemo device:', device.productName);
           try {
             await this.connectToDevice(device);
             return true;
           } catch (e) {
-            console.log('Could not connect to', device.productName);
+            trace('Could not connect to', device.productName);
           }
         }
       }
     } catch (e) {
-      console.log('getDevices failed:', e.message);
+      trace('getDevices failed:', e.message);
     }
 
     return false;
@@ -108,12 +110,12 @@ export class USBTransport {
 
     try {
       // Request device - show picker
-      console.log('Requesting USB device...');
+      trace('Requesting USB device...');
       this.device = await navigator.usb.requestDevice({
         filters: USB_DEVICE_FILTERS
       });
 
-      console.log(`Selected device: ${this.device.productName || 'USB Device'}`);
+      trace(`Selected device: ${this.device.productName || 'USB Device'}`);
 
       await this.connectToDevice(this.device);
       return true;
@@ -149,7 +151,7 @@ export class USBTransport {
     }
 
     await this.device.claimInterface(interfaceNum);
-    console.log(`Claimed interface ${interfaceNum}`);
+    trace(`Claimed interface ${interfaceNum}`);
 
     // Find OUT endpoint
     const iface = this.device.configuration.interfaces[interfaceNum];
@@ -167,7 +169,7 @@ export class USBTransport {
     }
 
     this.connected = true;
-    console.log('USB connected to', this.device.productName);
+    trace('USB connected to', this.device.productName);
   }
 
   /**

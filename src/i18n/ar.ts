@@ -12,6 +12,8 @@ export const ar: Record<Key, string> = {
   exportJson: 'تصدير JSON', importJson: 'استيراد JSON', exportPng: 'تصدير PNG', exportPdf: 'تصدير PDF',
   designName: 'اسم التصميم', noDesigns: 'لا توجد تصاميم محفوظة بعد. احفظ الملصق الحالي وسيظهر هنا.',
   saved: 'تم الحفظ', deleted: 'تم الحذف', imported: 'تم الاستيراد', rename: 'إعادة تسمية', untitled: 'بدون عنوان',
+  confirmOverwriteName: 'يوجد تصميم بالاسم "{name}" بالفعل. هل تستبدله؟',
+  confirmDeleteNamed: 'حذف "{name}"؟ لا يمكن التراجع عن هذا.',
   confirmNew: 'بدء تصميم جديد؟ التغييرات غير المحفوظة تبقى في سجل التراجع فقط.',
   elementsCount: '{n} عناصر', recordsCount: '{n} سجلات',
   label: 'الملصق', labelSize: 'حجم الملصق', orientation: 'الاتجاه', portrait: 'عمودي', landscape: 'أفقي', custom: 'مخصص…', roundLabels: 'ملصقات دائرية', continuousTape: 'شريط متصل',

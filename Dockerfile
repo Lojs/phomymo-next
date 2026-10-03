@@ -21,6 +21,7 @@ RUN apk add --no-cache openssl gettext curl
 
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf.template
+COPY docker/security-headers.conf /etc/nginx/snippets/phomymo-security-headers.conf
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
@@ -34,8 +35,12 @@ EXPOSE 443
 
 # Reports unhealthy until nginx is actually serving. Without it a container that is up but wedged
 # looks identical to a healthy one to anything watching the stack.
+#
+# It checks the HTTPS port rather than port 80: the latter only issues a 301, and `curl -f` treats a
+# redirect as a failure, so a check on 80 would report a perfectly healthy container as unhealthy.
+# -k because the certificate is self-signed, which is the normal case here.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:80/ -o /dev/null || exit 1
+  CMD curl -fsSk https://127.0.0.1:443/ -o /dev/null || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]

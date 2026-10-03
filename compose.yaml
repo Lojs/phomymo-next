@@ -1,20 +1,24 @@
 # Phomymo Next — label designer for a Phomemo thermal printer.
-# Rebuilt 2026-09-29 and written to house style.
-# Secrets live in ./.env — keep that file private.
+#
+# The deployed instance (the Pi) pulls the published image; this file is what a contributor gets when
+# they run `docker compose up`. Both are supported at once: with `build` present, compose builds the
+# image when it is missing locally or when --build is passed, and otherwise uses the published one.
 services:
   phomymo-next:
     image: ghcr.io/lojs/phomymo-next:latest
+    build: .
     container_name: "phomymo-next"
     restart: unless-stopped
-    network_mode: bridge
     ports:
       - 8444:443
     volumes:
+      # A bind mount, not a named volume, on purpose: `docker compose down -v` then leaves the
+      # certificate alone, and a real cert.pem/key.pem can be dropped in without docker cp.
       - ./phomymo-certs:/certs
     env_file:
-      - .env
+      # Optional: with no .env the container falls back to PHOMYMO_DOMAIN=localhost, which still works
+      # for a local trial run. Previously a missing .env aborted the whole stack.
+      - path: .env
+        required: false
     environment:
       - TZ=UTC
-
-volumes:
-  phomymo-certs:
