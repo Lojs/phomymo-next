@@ -28,6 +28,37 @@ let kind: 'ble' | 'usb' | null = null;
  */
 let printing = false;
 
+/**
+ * The periodic battery refresh. The printer's own readout is otherwise only read once, at connect
+ * time, so the percentage would sit at whatever it was when you paired. A timer keeps it honest.
+ *
+ * It is deliberately not a blind interval: each tick skips while a print is in flight, because the
+ * status command and the raster chunks share one transport — the same reason `printing` above
+ * exists. It also stops itself the moment the printer disconnects.
+ */
+let batteryTimer: ReturnType<typeof setInterval> | null = null;
+const BATTERY_REFRESH_MS = 60_000;
+
+function stopBatteryRefresh(): void {
+  if (batteryTimer !== null) {
+    clearInterval(batteryTimer);
+    batteryTimer = null;
+  }
+}
+
+function startBatteryRefresh(): void {
+  stopBatteryRefresh();
+  batteryTimer = setInterval(() => {
+    // Skip a tick rather than queue one: if the printer is mid-job the reading can wait 60s, and
+    // sending now would interleave with the raster.
+    if (printing || !transport?.isConnected?.()) {
+      if (!transport?.isConnected?.()) stopBatteryRefresh();
+      return;
+    }
+    void transport.query?.('battery').catch(() => {});
+  }, BATTERY_REFRESH_MS);
+}
+
 const st = () => useStore.getState();
 const tr = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate(st().lang, key, vars);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -53,6 +84,8 @@ export const secureContextOk = () => window.isSecureContext;
 export const bluetoothAvailable = () => BLETransport.isAvailable();
 export const usbAvailable = () => USBTransport.isAvailable();
 export const isConnected = () => !!transport && !!transport.isConnected();
+/** True while a print job owns the transport. Anything else that writes to it must wait. */
+export const isPrinting = () => printing;
 
 /** Turns a raw WebBluetooth/WebUSB error into a message worth showing the user. */
 export function friendlyConnectError(e: unknown): string {
@@ -144,10 +177,15 @@ async function afterConnect(type: 'ble' | 'usb', deviceName: string): Promise<vo
   if (type === 'ble') {
     transport.onPrinterInfo = (_field: string, _value: unknown, info: Record<string, unknown>) => st().setPrinterInfo({ ...(info as object) } as never);
     setTimeout(() => void transport.queryAll?.().catch(() => {}), 500);
+    // Battery is the one field worth re-reading: it is the only reading that goes stale on its own
+    // while the printer sits idle. The rest change only when you touch the hardware, and they
+    // arrive as events when they do.
+    startBatteryRefresh();
   }
 }
 
 export async function disconnectPrinter(): Promise<void> {
+  stopBatteryRefresh();
   try {
     await transport?.disconnect?.();
   } finally {

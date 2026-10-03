@@ -5,7 +5,7 @@
  * validates the environment, obtains a transport, reports the outcome, and decides which printer
  * profile a job will use. The tests drive the real orchestration with the transports mocked.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 /** A controllable BLE transport, plus what the orchestration did to it. */
 const h = vi.hoisted(() => ({
@@ -56,6 +56,7 @@ function makeTransport(deviceName: string) {
     },
     async disconnect() { h.calls.push('disconnect'); connected = false; },
     async queryAll() { h.calls.push('queryAll'); },
+    async query(t: string) { h.calls.push(t); },
     async send() { h.calls.push('send'); },
     async delay() {},
     async waitForResponse() { return null; },
@@ -317,6 +318,78 @@ describe('currentTarget', () => {
     await p;
     // 72 is the app's default when nothing matches.
     expect(printing.currentTarget().target.widthBytes).toBe(72);
+  });
+});
+
+describe('the periodic battery refresh', () => {
+  // The readout is otherwise only read once, at connect. Battery is the one field that goes stale
+  // on its own while the printer sits idle.
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('re-queries the battery on its own, without the user doing anything', async () => {
+    const { printing } = await load();
+    await printing.connectPrinter('ble');
+    await vi.advanceTimersByTimeAsync(600); // let the connect-time queryAll settle
+    h.calls.length = 0;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.calls).toContain('battery');
+  });
+
+  it('keeps refreshing, not just once', async () => {
+    const { printing } = await load();
+    await printing.connectPrinter('ble');
+    await vi.advanceTimersByTimeAsync(600);
+    h.calls.length = 0;
+    await vi.advanceTimersByTimeAsync(180_000); // three minutes
+    expect(h.calls.filter((c) => c === 'battery').length).toBe(3);
+  });
+
+  it('does not send the query while a print is in flight', async () => {
+    // The status command and the raster chunks share one transport, so a query mid-job would
+    // interleave with them. A skipped tick is the correct behaviour.
+    const { printing } = await load();
+    await printing.connectPrinter('ble');
+    await vi.advanceTimersByTimeAsync(600);
+    let queryWhilePrinting = 0;
+    const realQuery = h.transport.query;
+    h.transport.query = async (t: string) => { if (t === 'battery' && printing.isPrinting()) queryWhilePrinting += 1; return realQuery.call(h.transport, t); };
+    const p = printing.printCurrent();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await p.catch(() => {});
+    expect(queryWhilePrinting).toBe(0);
+  });
+
+  it('stops when the printer disconnects', async () => {
+    const { printing } = await load();
+    await printing.connectPrinter('ble');
+    await vi.advanceTimersByTimeAsync(600);
+    await printing.disconnectPrinter();
+    h.calls.length = 0;
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(h.calls).not.toContain('battery');
+  });
+
+  it('does not keep a timer running after a second connect', async () => {
+    // Reconnecting must not leave the first timer alive, or the queries would double each minute.
+    const { printing } = await load();
+    await printing.connectPrinter('ble');
+    await vi.advanceTimersByTimeAsync(600);
+    await printing.disconnectPrinter();
+    await printing.connectPrinter('ble');
+    await vi.advanceTimersByTimeAsync(600);
+    h.calls.length = 0;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.calls.filter((c) => c === 'battery').length).toBe(1);
+  });
+
+  it('is not started for a USB connection, which has no battery command', async () => {
+    const { printing } = await load();
+    await printing.connectPrinter('usb');
+    await vi.advanceTimersByTimeAsync(600);
+    h.calls.length = 0;
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(h.calls).not.toContain('battery');
   });
 });
 
