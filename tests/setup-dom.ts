@@ -92,6 +92,16 @@ if (hasDom) {
     Object.defineProperty(URL, 'revokeObjectURL', { value: () => {}, configurable: true, writable: true });
   }
 
+  // jsdom implements neither pointer capture method, and Stage's pointer-down calls
+  // setPointerCapture on the hit overlay. Without these the handler throws — and because the throw
+  // happens inside a React event dispatch it does not surface as a test failure locally, only as
+  // noisy stderr that still fails CI. Stub both so the handler can run as it does in a browser.
+  if (!Element.prototype.setPointerCapture) {
+    Element.prototype.setPointerCapture = function setPointerCapture() {};
+    Element.prototype.releasePointerCapture = function releasePointerCapture() {};
+    Element.prototype.hasPointerCapture = function hasPointerCapture() { return false; };
+  }
+
   // React 19 needs this flag to allow act() outside a test-runner integration.
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 }

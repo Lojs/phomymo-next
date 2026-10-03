@@ -189,11 +189,16 @@ describe('pointer interaction', () => {
     useStore.getState().select([el.id]);
     render(<Stage />);
     const hit = document.querySelector('.stage-hit')!;
-    expect(() => {
-      fireEvent.pointerDown(hit, { clientX: 10, clientY: 10, pointerType: 'mouse', button: 0 });
-      fireEvent.pointerMove(hit, { clientX: 20, clientY: 20, pointerType: 'mouse' });
-      fireEvent.pointerUp(hit, { clientX: 20, clientY: 20, pointerType: 'mouse' });
-    }).not.toThrow();
+    // A React event handler's throw does not propagate out of fireEvent — it is reported to the
+    // window as an uncaught error. So watching for a throw here proves nothing; watch the error
+    // handler instead, which is how the real failure was caught by CI and not locally.
+    const onError = vi.fn();
+    window.addEventListener('error', onError);
+    fireEvent.pointerDown(hit, { clientX: 10, clientY: 10, pointerType: 'mouse', button: 0 });
+    fireEvent.pointerMove(hit, { clientX: 20, clientY: 20, pointerType: 'mouse' });
+    fireEvent.pointerUp(hit, { clientX: 20, clientY: 20, pointerType: 'mouse' });
+    window.removeEventListener('error', onError);
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it('the overlay swallows pointer events, so it carries the cursor style', () => {
