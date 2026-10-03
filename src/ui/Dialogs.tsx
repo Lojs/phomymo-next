@@ -334,8 +334,6 @@ export function PrintOverlay() {
 export function SettingsDialog() {
   const t = useT();
   const s = useStore();
-  const info = s.printerInfo;
-  const battery = info?.battery;
   const reset = () => s.updateSettings({
     printerModel: DEFAULT_SETTINGS.printerModel,
     density: DEFAULT_SETTINGS.density,
@@ -372,16 +370,8 @@ export function SettingsDialog() {
         <Button icon="sliders" onClick={() => void printDensityTest()} disabled={!s.conn.connected}>{t('densityTest')}</Button>
         <Button icon="settings" variant="ghost" onClick={() => s.openDialog('printers')}>{t('managePrinters')}</Button>
       </div>
-
-      {s.conn.connected && info && (
-        <dl className="status-list">
-          {typeof battery === 'number' && <><dt><Icon name="battery" size={14} /> {t('battery')}</dt><dd>{battery}%</dd></>}
-          {info.paper && <><dt>{t('paper')}</dt><dd>{info.paper === 'out' ? t('paperOut') : t('paperOk')}</dd></>}
-          {(info.cover === 'open' || info.cover === 'closed') && <><dt>{t('cover')}</dt><dd>{info.cover === 'open' ? t('coverOpen') : t('coverClosed')}</dd></>}
-          {info.firmware && <><dt>{t('firmware')}</dt><dd>{String(info.firmware)}</dd></>}
-          {info.serial && <><dt>{t('serial')}</dt><dd>{String(info.serial)}</dd></>}
-        </dl>
-      )}
+      {/* The printer's readout (battery, paper, cover, firmware, serial) is not here: it belongs to
+          the device, not to a setting, and it now lives in the connect menu under Disconnect. */}
     </Modal>
   );
 }

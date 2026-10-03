@@ -64,52 +64,23 @@ describe('SettingsDialog — printer state', () => {
 });
 
 describe('SettingsDialog — printer status readout', () => {
+  // The readout moved to the connect menu (see topbar.dom.test.tsx). These assertions pin that it
+  // is gone from here, so it cannot quietly come back in two places.
   it('shows nothing but the controls while disconnected', () => {
     render(<SettingsDialog />);
     expect(screen.queryByText('Battery')).toBeNull();
     expect(screen.queryByText('Paper')).toBeNull();
   });
 
-  it('shows battery, paper, cover, firmware and serial when known', () => {
+  it('no longer shows the printer readout even while connected', () => {
     connected();
     useStore.setState({
       printerInfo: { battery: 74, paper: 'ok', cover: 'closed', firmware: '1.1.3', serial: 'Q059E35I0030870' },
     });
     render(<SettingsDialog />);
-    expect(screen.getByText('74%')).toBeTruthy();
-    expect(screen.getByText('OK')).toBeTruthy();
-    expect(screen.getByText('Closed')).toBeTruthy();
-    expect(screen.getByText('1.1.3')).toBeTruthy();
-    expect(screen.getByText('Q059E35I0030870')).toBeTruthy();
-  });
-
-  it('reports an open cover as "Open" (the mapping this release fixed)', () => {
-    connected();
-    useStore.setState({ printerInfo: { battery: null, paper: 'ok', cover: 'open', firmware: null, serial: null } });
-    render(<SettingsDialog />);
-    expect(screen.getByText('Open')).toBeTruthy();
-  });
-
-  it('reports paper out', () => {
-    connected();
-    useStore.setState({ printerInfo: { battery: null, paper: 'out', cover: null, firmware: null, serial: null } });
-    render(<SettingsDialog />);
-    expect(screen.getByText('Out of paper')).toBeTruthy();
-  });
-
-  it('omits fields that are unknown rather than showing blanks', () => {
-    connected();
-    useStore.setState({ printerInfo: { battery: null, paper: null, cover: null, firmware: null, serial: null } });
-    render(<SettingsDialog />);
-    expect(screen.queryByText('Battery')).toBeNull();
-    expect(screen.queryByText('Cover')).toBeNull();
-  });
-
-  it('does not treat an unknown cover value as a state', () => {
-    connected();
-    useStore.setState({ printerInfo: { battery: null, paper: null, cover: 'unknown', firmware: null, serial: null } });
-    render(<SettingsDialog />);
-    expect(screen.queryByText('Cover')).toBeNull();
+    expect(screen.queryByText('74%')).toBeNull();
+    expect(screen.queryByText('Q059E35I0030870')).toBeNull();
+    expect(screen.queryByText('1.1.3')).toBeNull();
   });
 });
 

@@ -198,6 +198,9 @@ button { background: none; border: none; cursor: pointer; color: inherit; }
 .menu button:hover { background: var(--raised-hi); }
 .menu-note { padding: 8px 10px; font-size: 12.5px; color: var(--ink-soft); max-width: 220px; }
 .menu-note-error { color: var(--danger); border-bottom: 1px solid var(--line); margin-bottom: 4px; padding-bottom: 10px; }
+/* The printer's readout, sitting under Disconnect in the connect menu. It reads as a footnote to
+   the disconnect action rather than a menu item, so it is separated by a rule and indented. */
+.menu-status { margin: 5px 0 2px; padding: 9px 10px 4px; border-top: 1px solid var(--line); }
 .menu-tools { min-width: 160px; }
 /* 13 shapes as a single column would be a ~470px-tall menu that runs off a phone. Two columns keep
    the labels (unlike an icon-only grid) while halving the height. */

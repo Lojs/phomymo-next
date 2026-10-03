@@ -10,7 +10,8 @@ import { bluetoothAvailable, connectPrinter, disconnectPrinter, printCurrent, us
 function ConnectMenu() {
   const t = useT();
   const conn = useStore((s) => s.conn);
-  const battery = useStore((s) => s.printerInfo?.battery);
+  const info = useStore((s) => s.printerInfo);
+  const battery = info?.battery;
   const [open, setOpen] = useState(false);
   const ref = useOutsideClose(open, () => setOpen(false));
   const pick = (fn: () => Promise<unknown>) => { setOpen(false); void fn(); };
@@ -49,7 +50,21 @@ function ConnectMenu() {
         <div className="menu" role="menu">
           {conn.status === 'failed' && conn.error && <p className="menu-note menu-note-error">{conn.error}</p>}
           {conn.connected ? (
-            <button role="menuitem" onClick={() => pick(disconnectPrinter)}><Icon name="close" size={16} />{t('disconnect')}</button>
+            <>
+              <button role="menuitem" onClick={() => pick(disconnectPrinter)}><Icon name="close" size={16} />{t('disconnect')}</button>
+              {/* The printer's own readout lives here, under Disconnect, rather than in the print
+                  settings dialog: it is a fact about the connected device, not a setting, and this
+                  menu is where you look when you want to know about the device. */}
+              {info && (
+                <dl className="status-list menu-status">
+                  {typeof info.battery === 'number' && <><dt><Icon name="battery" size={14} /> {t('battery')}</dt><dd>{info.battery}%</dd></>}
+                  {info.paper && <><dt>{t('paper')}</dt><dd>{info.paper === 'out' ? t('paperOut') : t('paperOk')}</dd></>}
+                  {(info.cover === 'open' || info.cover === 'closed') && <><dt>{t('cover')}</dt><dd>{info.cover === 'open' ? t('coverOpen') : t('coverClosed')}</dd></>}
+                  {info.firmware && <><dt>{t('firmware')}</dt><dd>{String(info.firmware)}</dd></>}
+                  {info.serial && <><dt>{t('serial')}</dt><dd>{String(info.serial)}</dd></>}
+                </dl>
+              )}
+            </>
           ) : (
             <>
               {bluetoothAvailable() && <button role="menuitem" onClick={() => pick(() => connectPrinter('ble'))}><Icon name="bluetooth" size={16} />{t('bluetooth')}</button>}

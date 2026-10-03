@@ -244,3 +244,84 @@ describe('connection menu', () => {
     expect(screen.getByText('Bluetooth is blocked')).toBeTruthy();
   });
 });
+
+describe('TopBar — the printer readout under Disconnect', () => {
+  // The readout moved here from the print settings dialog: it describes the connected device, not a
+  // setting, and the connect menu is where you look when you want to know about the device.
+  const connect = (info: Record<string, unknown> | null) => {
+    useStore.setState({
+      conn: { type: 'ble', connected: true, busy: false, deviceName: 'M221', status: 'connected', error: null },
+      printerInfo: info as never,
+    });
+  };
+  const openMenu = () => {
+    render(<TopBar />);
+    fireEvent.click(screen.getAllByText('M221')[0].closest('button')!);
+  };
+
+  it('shows nothing but Disconnect when the printer reports no details', () => {
+    connect(null);
+    openMenu();
+    expect(screen.getByText('Disconnect')).toBeTruthy();
+    expect(screen.queryByText('Battery')).toBeNull();
+    expect(screen.queryByText('Serial')).toBeNull();
+  });
+
+  it('shows battery, paper, cover, firmware and serial when known', () => {
+    connect({ battery: 74, paper: 'ok', cover: 'closed', firmware: '1.1.3', serial: 'Q059E35I0030870' });
+    openMenu();
+    // The battery percentage appears twice by design: on the connect pill and in the readout.
+    const readout = document.querySelector('.menu-status')!;
+    expect(readout.textContent).toContain('74%');
+    expect(screen.getByText('OK')).toBeTruthy();
+    expect(screen.getByText('Closed')).toBeTruthy();
+    expect(screen.getByText('1.1.3')).toBeTruthy();
+    expect(screen.getByText('Q059E35I0030870')).toBeTruthy();
+  });
+
+  it('reports an open cover as "Open"', () => {
+    connect({ battery: null, paper: 'ok', cover: 'open', firmware: null, serial: null });
+    openMenu();
+    expect(screen.getByText('Open')).toBeTruthy();
+  });
+
+  it('reports paper out', () => {
+    connect({ battery: null, paper: 'out', cover: null, firmware: null, serial: null });
+    openMenu();
+    expect(screen.getByText('Out of paper')).toBeTruthy();
+  });
+
+  it('omits fields that are unknown rather than showing blanks', () => {
+    connect({ battery: null, paper: null, cover: null, firmware: null, serial: null });
+    openMenu();
+    expect(screen.queryByText('Battery')).toBeNull();
+    expect(screen.queryByText('Cover')).toBeNull();
+  });
+
+  it('does not treat an unknown cover value as a state', () => {
+    connect({ battery: null, paper: null, cover: 'unknown', firmware: null, serial: null });
+    openMenu();
+    expect(screen.queryByText('Cover')).toBeNull();
+  });
+
+  it('does not show the readout while disconnected', () => {
+    useStore.setState({
+      conn: { type: null, connected: false, busy: false, deviceName: '', status: 'disconnected', error: null },
+      printerInfo: { battery: 74, paper: 'ok', cover: 'closed', firmware: '1.1.3', serial: 'Q059E35I0030870' } as never,
+    });
+    render(<TopBar />);
+    fireEvent.click(screen.getAllByText('Connect Printer')[0].closest('button')!);
+    expect(document.querySelector('.menu-status')).toBeNull();
+    expect(screen.queryByText('Battery')).toBeNull();
+  });
+
+  it('keeps the readout below the Disconnect action', () => {
+    connect({ battery: 74, paper: 'ok', cover: null, firmware: null, serial: null });
+    openMenu();
+    const menu = screen.getByText('Disconnect').closest('.menu')!;
+    const readout = menu.querySelector('.menu-status')!;
+    // Disconnect comes first, the readout after it.
+    expect(menu.textContent!.indexOf('Disconnect')).toBeLessThan(menu.textContent!.indexOf('74%'));
+    expect(readout).toBeTruthy();
+  });
+});
