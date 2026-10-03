@@ -71,18 +71,16 @@ describe('templates match legacy', () => {
 
   it('parseCSV / toCSV', () => {
     const csv = 'Name,Note\r\nAli,"a, b"\n"Sa""m",x\n\nbad\nLast,"multi word"\n';
-    // The legacy parser and this one now disagree on exactly one thing, deliberately: it counted a
-    // blank line as a row when building the "Row N" message, so the broken row after a blank line was
-    // reported as row 5 when it is physically row 4. This parser reports the real line number. Assert
-    // the rest identically, so a future regression anywhere else in the parser still fails here.
+    // Row numbering now matches the legacy parser exactly: both report the physical line, and "bad"
+    // is line 5 of that CSV because line 4 is blank. (An intermediate version counted data rows and
+    // said 4 — that was less accurate, and agreeing with the original here is the better outcome.)
     const mine = T.parseCSV(csv);
     const legacy = legacyT.parseCSV(csv);
     expect(mine.headers).toEqual(legacy.headers);
     expect(mine.records).toEqual(legacy.records);
     const stripRow = (e: string) => e.replace(/^Row \d+: /, 'Row N: ');
     expect(mine.errors.map(stripRow)).toEqual(legacy.errors.map(stripRow));
-    expect(mine.errors).toEqual(['Row 4: Expected 2 columns, got 1']);
-    expect(mine.errors).not.toEqual(legacy.errors);   // and the difference is real, not accidental
+    expect(mine.errors).toEqual(legacy.errors);
 
     // An empty file: the legacy parser returned `headers: ['']` with no error, which reads as "one
     // column with an empty name" — a successful parse of nothing. This parser reports an empty file,

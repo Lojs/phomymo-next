@@ -1,60 +1,87 @@
 #!/bin/sh
 set -e
 
-CERT_DIR="/certs"
+# The three paths below are overridable only so the script can be tested outside a container.
+CERT_DIR="${CERT_DIR:-/certs}"
+CONF_TEMPLATE="${CONF_TEMPLATE:-/etc/nginx/conf.d/default.conf.template}"
+CONF_OUT="${CONF_OUT:-/etc/nginx/conf.d/default.conf}"
+
 CERT="$CERT_DIR/cert.pem"
 KEY="$CERT_DIR/key.pem"
-DOMAIN_FILE="$CERT_DIR/domain"
+# Written next to a certificate WE generated: line 1 is the domain it was issued for, line 2 its
+# fingerprint. If the marker is missing, or the fingerprint no longer matches the certificate on disk
+# (the user copied their own over ours), the certificate is the user's and we never touch it.
+#
+# The fingerprint is what makes this safe. Checking only that the files exist cannot tell a
+# certificate we generated from one the user supplied, and regenerating over a real certificate
+# would break a working HTTPS setup in a way the browser presents as a hijack.
+MARKER="$CERT_DIR/.self-signed-for"
 DOMAIN="${PHOMYMO_DOMAIN:-localhost}"
-DAYS=825   # the maximum a browser will accept for a self-signed leaf
+RENEW_BEFORE_SECONDS=2592000   # 30 days
 
 mkdir -p "$CERT_DIR"
 
-have_pair() { [ -f "$CERT" ] && [ -f "$KEY" ]; }
+fingerprint() {
+  openssl x509 -in "$CERT" -noout -fingerprint -sha256 2>/dev/null || true
+}
 
-# Regenerate when the certificate is missing, or when it was issued for a different name.
-#
-# The old check was file existence only, so changing PHOMYMO_DOMAIN left a certificate for the old
-# address in place: the browser reported a name mismatch, which looks like a hijack rather than a
-# stale file. Recording the domain next to the certificate makes the mismatch detectable.
-if have_pair && [ -f "$DOMAIN_FILE" ] && [ "$(cat "$DOMAIN_FILE")" = "$DOMAIN" ]; then
-  :
-elif have_pair && [ ! -f "$DOMAIN_FILE" ]; then
-  # Pre-existing certificate from before the domain was tracked. Adopt it rather than replacing a
-  # certificate the user may have supplied deliberately.
-  echo "$DOMAIN" > "$DOMAIN_FILE"
-  echo "[phomymo] Using the existing certificate at $CERT_DIR (issued by an earlier version)."
-else
-  if have_pair; then
-    echo "[phomymo] PHOMYMO_DOMAIN changed to '$DOMAIN' — regenerating the certificate."
-  else
-    echo "[phomymo] No certificate found at $CERT_DIR — generating a self-signed one for '$DOMAIN'."
-    echo "[phomymo] Your browser will show a warning the first time; that's expected for a"
-    echo "[phomymo] self-signed cert. To use a real certificate instead, mount cert.pem and"
-    echo "[phomymo] key.pem into /certs (see the README)."
-  fi
-  rm -f "$CERT" "$KEY"
-  openssl req -x509 -nodes -newkey rsa:2048 -days "$DAYS" \
+generate_cert() {
+  # An IP address must appear as an IP: entry in subjectAltName. Chromium ignores a DNS: entry for an
+  # IP literal, so a certificate for 192.168.x.x written as DNS: reports a name mismatch on every
+  # device — which reads as a hijack rather than as a stale file.
+  case "$DOMAIN" in
+    *[!0-9.]*|"") SAN="DNS:$DOMAIN" ;;
+    *)             SAN="IP:$DOMAIN" ;;
+  esac
+  [ "$DOMAIN" = "localhost" ] || SAN="$SAN,DNS:localhost"
+  SAN="$SAN,IP:127.0.0.1"
+
+  openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
     -keyout "$KEY" -out "$CERT" \
     -subj "/CN=$DOMAIN" \
-    -addext "subjectAltName=DNS:$DOMAIN,DNS:localhost,IP:127.0.0.1" \
+    -addext "subjectAltName=$SAN" \
     2>/dev/null
-  echo "$DOMAIN" > "$DOMAIN_FILE"
+  chmod 600 "$KEY"
+  printf '%s\n%s\n' "$DOMAIN" "$(fingerprint)" > "$MARKER"
+}
+
+# True only for a certificate this script generated and that has not been replaced since.
+is_ours() {
+  [ -f "$MARKER" ] && [ "$(sed -n 2p "$MARKER")" = "$(fingerprint)" ]
+}
+
+if [ ! -f "$CERT" ] || [ ! -f "$KEY" ]; then
+  echo "[phomymo] No certificate found at $CERT_DIR — generating a self-signed one for '$DOMAIN'."
+  echo "[phomymo] Your browser will show a warning the first time; that's expected for a"
+  echo "[phomymo] self-signed cert. To use a real certificate instead, mount cert.pem and"
+  echo "[phomymo] key.pem into /certs (see the README)."
+  generate_cert
+elif is_ours; then
+  # Ours: keep it in step with PHOMYMO_DOMAIN, and renew it before it stops being accepted rather
+  # than on the day the printer app breaks.
+  if [ "$(sed -n 1p "$MARKER")" != "$DOMAIN" ]; then
+    echo "[phomymo] PHOMYMO_DOMAIN changed to '$DOMAIN' — regenerating the self-signed certificate."
+    generate_cert
+  elif ! openssl x509 -in "$CERT" -noout -checkend "$RENEW_BEFORE_SECONDS" >/dev/null 2>&1; then
+    echo "[phomymo] The self-signed certificate expires within 30 days — renewing it."
+    generate_cert
+  fi
+elif ! openssl x509 -in "$CERT" -noout -checkend 0 >/dev/null 2>&1; then
+  echo "[phomymo] WARNING: the certificate at $CERT has expired and browsers will refuse it."
+  echo "[phomymo] Replace it, or delete it to have a self-signed one generated."
 fi
 
-# Warn before the certificate stops being accepted, rather than on the day the printer app breaks.
-# -checkend returns 0 while the certificate is still valid for the given number of seconds.
-if openssl x509 -in "$CERT" -checkend $((30 * 24 * 3600)) >/dev/null 2>&1; then
-  :
-elif openssl x509 -in "$CERT" -checkend 0 >/dev/null 2>&1; then
-  echo "[phomymo] WARNING: the certificate at $CERT expires within 30 days."
-  echo "[phomymo] Delete $CERT to have a fresh one generated on next start."
-else
-  echo "[phomymo] WARNING: the certificate at $CERT has EXPIRED and browsers will refuse it."
-  echo "[phomymo] Delete $CERT to have a fresh one generated on next start."
-fi
+# The HTTP->HTTPS redirect has to carry the port the browser actually used when HTTPS is not published
+# on 443 (e.g. 8444:443), otherwise it sends the user to a port nothing listens on. $host has no port
+# in it, which is exactly how the old redirect lost it.
+case "${PHOMYMO_HTTPS_PORT:-}" in
+  ""|443) PHOMYMO_REDIRECT_PORT="" ;;
+  *[!0-9]*) echo "[phomymo] PHOMYMO_HTTPS_PORT must be a number, got '$PHOMYMO_HTTPS_PORT'." >&2; exit 1 ;;
+  *) PHOMYMO_REDIRECT_PORT=":$PHOMYMO_HTTPS_PORT" ;;
+esac
+export PHOMYMO_DOMAIN PHOMYMO_REDIRECT_PORT
 
 # Bluetooth/USB printing requires a secure context, so HTTP just redirects to HTTPS.
-envsubst '${PHOMYMO_DOMAIN}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf
+envsubst '${PHOMYMO_DOMAIN} ${PHOMYMO_REDIRECT_PORT}' < "$CONF_TEMPLATE" > "$CONF_OUT"
 
 exec "$@"

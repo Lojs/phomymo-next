@@ -240,9 +240,31 @@ export function saveCurrentDesign(name: string): boolean {
   }
 }
 
+/**
+ * File text, tolerant of the encodings real CSVs arrive in.
+ *
+ * Excel's "CSV (Comma delimited)" — not "CSV UTF-8" — is Windows-1256 on an Arabic system and
+ * Windows-1252 on a Western one. Decoded as UTF-8 it yields U+FFFD replacement characters, so every
+ * Arabic cell arrives as mojibake. `fatal: true` is what distinguishes the two: valid UTF-8 decodes,
+ * anything else throws and is retried as Windows-1256, which also covers Latin accents correctly.
+ */
+export async function readCsvText(file: File): Promise<string> {
+  if (typeof file.arrayBuffer !== 'function') return file.text();
+  const buf = await file.arrayBuffer();
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buf);
+  } catch {
+    try {
+      return new TextDecoder('windows-1256').decode(buf);
+    } catch {
+      return new TextDecoder().decode(buf);   // last resort: never lose the file to a decode error
+    }
+  }
+}
+
 export async function importCsvFile(file: File): Promise<void> {
   try {
-    const { records, errors } = parseCSV(await file.text());
+    const { records, errors } = parseCSV(await readCsvText(file));
     // "No records" is a failure however it happened. The old guard also required `errors.length`,
     // so an empty file — which yields zero records AND zero errors — fell through and reported
     // "Imported 0 records" as a success.
@@ -260,5 +282,7 @@ export async function importCsvFile(file: File): Promise<void> {
 export function exportCsv() {
   const fields = st().fields();
   const headers = fields.length ? fields : Object.keys(st().templateData[0] ?? {});
-  download(`${fileBase()}-data.csv`, new Blob([toCSV(headers, st().templateData)], { type: 'text/csv' }));
+  // The BOM is what makes Excel read the file as UTF-8 instead of guessing the local codepage, which
+  // on an Arabic system is Windows-1256 and renders every Arabic cell as mojibake.
+  download(`${fileBase()}-data.csv`, new Blob(['\uFEFF', toCSV(headers, st().templateData)], { type: 'text/csv;charset=utf-8' }));
 }

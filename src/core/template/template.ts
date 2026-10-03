@@ -168,6 +168,9 @@ function formatDateTime(d: Date, format: string): string {
 
 export interface CsvResult { headers: string[]; records: TemplateRecord[]; errors: string[] }
 
+/** One row of fields, plus the physical line it starts on, so error messages can point at it. */
+interface CsvRow { values: string[]; line: number }
+
 /**
  * Split CSV text into rows of fields.
  *
@@ -180,15 +183,25 @@ export interface CsvResult { headers: string[]; records: TemplateRecord[]; error
  * `delim` is detected by the caller and passed in, because Excel under several locales writes
  * semicolon-separated files and a fixed comma turned those into a single column named "a;b".
  */
-function parseRows(text: string, delim: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
+function parseRows(text: string, delim: string): CsvRow[] {
+  const rows: CsvRow[] = [];
+  let values: string[] = [];
   let cur = '';
   let quoted = false;
-  let started = false; // a row exists once any character, including a delimiter, has been seen
+  let sawQuote = false;
+  let line = 1;
+  let rowLine = 1;
 
-  const endField = () => { row.push(cur.trim()); cur = ''; };
-  const endRow = () => { endField(); if (started) rows.push(row); row = []; started = false; };
+  const endField = () => { values.push(cur.trim()); cur = ''; };
+  const endRow = () => {
+    endField();
+    // A row of one empty field is a blank line — unless it was quoted. `""` is an empty *cell*, which
+    // is data, and dropping it silently loses a column's value for that row.
+    const blank = values.length === 1 && values[0] === '' && !sawQuote;
+    if (!blank) rows.push({ values, line: rowLine });
+    values = [];
+    sawQuote = false;
+  };
 
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
@@ -196,17 +209,24 @@ function parseRows(text: string, delim: string): string[][] {
       if (ch === '"') {
         if (text[i + 1] === '"') { cur += '"'; i++; }   // "" is an escaped quote
         else quoted = false;
-      } else cur += ch;                                   // newlines inside quotes are data
+      } else {
+        if (ch === '\n') line++;
+        cur += ch;                                       // newlines inside quotes are data
+      }
       continue;
     }
-    if (ch === '"') { quoted = true; started = true; continue; }
-    if (ch === delim) { started = true; endField(); continue; }
-    if (ch === '\r') { if (text[i + 1] === '\n') i++; endRow(); continue; }
-    if (ch === '\n') { endRow(); continue; }
-    if (ch !== ' ') started = true;
+    if (ch === '"') { quoted = true; sawQuote = true; continue; }
+    if (ch === delim) { endField(); continue; }
+    if (ch === '\r' || ch === '\n') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      endRow();
+      line++;
+      rowLine = line;
+      continue;
+    }
     cur += ch;
   }
-  if (started || cur !== '') endRow();
+  if (cur !== '' || values.length || sawQuote) endRow();
   return rows;
 }
 
@@ -237,15 +257,19 @@ function detectDelimiter(text: string): string {
 }
 
 export function parseCSV(csv: string): CsvResult {
+  // Excel writes a UTF-8 byte-order mark, which would otherwise become part of the first header name
+  // — so a column the template refers to as "name" is really "\uFEFFname" and never matches.
+  const text = csv.charCodeAt(0) === 0xfeff ? csv.slice(1) : csv;
+
   const errors: string[] = [];
   const records: TemplateRecord[] = [];
-  if (!csv.trim()) return { headers: [], records: [], errors: ['Empty CSV file'] };
+  if (!text.trim()) return { headers: [], records: [], errors: ['Empty CSV file'] };
 
-  const delim = detectDelimiter(csv);
-  const rows = parseRows(csv, delim);
+  const delim = detectDelimiter(text);
+  const rows = parseRows(text, delim);
   if (rows.length === 0) return { headers: [], records: [], errors: ['Empty CSV file'] };
 
-  const headers = rows[0];
+  const headers = rows[0].values;
   if (headers.length === 0 || headers.every((h) => h === '')) {
     return { headers: [], records: [], errors: ['No headers found in CSV'] };
   }
@@ -255,10 +279,11 @@ export function parseCSV(csv: string): CsvResult {
       errors.push(`CSV truncated: Maximum ${MAX_CSV_RECORDS} records allowed`);
       break;
     }
-    const values = rows[i];
-    if (values.length === 1 && values[0] === '') continue;   // blank line
+    const { values, line } = rows[i];
     if (values.length !== headers.length) {
-      errors.push(`Row ${i + 1}: Expected ${headers.length} columns, got ${values.length}`);
+      // The physical line, not the row index: a quoted cell spanning three lines makes them differ,
+      // and a row number that points at the wrong line is worse than no number at all.
+      errors.push(`Row ${line}: Expected ${headers.length} columns, got ${values.length}`);
       continue;
     }
     const rec: TemplateRecord = {};

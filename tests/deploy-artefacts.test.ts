@@ -25,9 +25,11 @@ describe('nginx', () => {
   });
 
   it('keeps the port on the HTTP to HTTPS redirect', () => {
-    // $host has no port, so http://ip:8444 redirected to https://ip/ where nothing listens.
+    // $host has no port, so http://ip:8444 redirected to https://ip/ where nothing listens. The port
+    // comes from PHOMYMO_REDIRECT_PORT, which the entrypoint derives from PHOMYMO_HTTPS_PORT.
     const redirect = conf.match(/return 30\d https:\/\/[^;]+;/)?.[0] ?? '';
-    expect(redirect).toContain('$server_port');
+    expect(redirect).toContain('${PHOMYMO_REDIRECT_PORT}');
+    expect(redirect).not.toContain('$server_port');   // that is the LISTENING port (80), not the target
   });
 
   it('sends the security headers', () => {
@@ -206,16 +208,31 @@ describe('the certificate entrypoint', () => {
   const ep = read('docker/entrypoint.sh');
 
   it('regenerates when the domain changes, not only when a file is missing', () => {
-    expect(ep).toMatch(/DOMAIN_FILE/);
+    expect(ep).toMatch(/MARKER=/);
     expect(ep).toMatch(/changed to/);
   });
 
-  it('warns before the certificate expires', () => {
-    expect(ep).toMatch(/checkend/);
-    expect(ep).toMatch(/expire/i);
+  it('puts an IP address under IP:, not DNS:', () => {
+    // Chromium ignores a DNS: entry for an IP literal, so a certificate for 192.168.x.x written as
+    // DNS: reports a name mismatch on every device.
+    expect(ep).toMatch(/IP:\$DOMAIN/);
+    expect(ep).not.toMatch(/subjectAltName=DNS:\$DOMAIN/);
   });
 
-  it('adopts a pre-existing certificate rather than replacing one the user supplied', () => {
-    expect(ep).toMatch(/earlier version/);
+  it('renews before the certificate expires', () => {
+    expect(ep).toMatch(/checkend/);
+    expect(ep).toMatch(/RENEW_BEFORE_SECONDS/);
+  });
+
+  it('never touches a certificate the user supplied', () => {
+    // The fingerprint is what distinguishes ours from theirs: checking only that the files exist
+    // cannot tell them apart, and regenerating over a real certificate breaks a working setup.
+    expect(ep).toMatch(/fingerprint -sha256/);
+    expect(ep).toMatch(/is_ours/);
+  });
+
+  it('validates PHOMYMO_HTTPS_PORT rather than writing a broken config', () => {
+    expect(ep).toMatch(/PHOMYMO_HTTPS_PORT must be a number/);
+    expect(ep).toMatch(/PHOMYMO_REDIRECT_PORT/);
   });
 });

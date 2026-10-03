@@ -189,3 +189,62 @@ describe('the date format string', () => {
     expect(rendered('[[date|YYYY|MM/DD]]')).toMatch(/^\d{4}\|\d{2}\/\d{2}$/);
   });
 });
+
+describe('an empty quoted cell is data, not a blank line', () => {
+  // `""` is an empty cell. Treating it as a blank line drops the row and loses that column's value —
+  // and the exporter writes exactly this shape for an empty field that must stay empty.
+  it('keeps a row whose only content is a quoted empty field', () => {
+    const r = parseCSV('a,b\n"",x\n');
+    expect(r.errors).toEqual([]);
+    expect(r.records).toHaveLength(1);
+    expect(r.records[0].a).toBe('');
+    expect(r.records[0].b).toBe('x');
+  });
+
+  it('still skips a genuinely blank line', () => {
+    const r = parseCSV('a,b\n1,2\n\n3,4\n');
+    expect(r.records).toHaveLength(2);
+  });
+
+  it('keeps a row of only empty quoted fields', () => {
+    const r = parseCSV('a,b\n"",""\n');
+    expect(r.records).toHaveLength(1);
+    expect(r.records[0]).toEqual({ a: '', b: '' });
+  });
+
+  it('survives the round-trip', () => {
+    const rows = [{ a: '', b: 'x' }] as TemplateRecord[];
+    const back = parseCSV(toCSV(['a', 'b'], rows));
+    expect(back.errors).toEqual([]);
+    expect(back.records).toHaveLength(1);
+    expect(back.records[0].a).toBe('');
+  });
+});
+
+describe('a byte-order mark is not part of the first header', () => {
+  // Excel writes a BOM. Left in place it becomes part of the header name, so a column the template
+  // calls "name" is really "\uFEFFname" and the field never matches.
+  it('strips it', () => {
+    const r = parseCSV('\uFEFFname,qty\nBean,3\n');
+    expect(r.headers).toEqual(['name', 'qty']);
+    expect(r.records[0]).toMatchObject({ name: 'Bean', qty: '3' });
+  });
+
+  it('leaves a file without one alone', () => {
+    expect(parseCSV('name\nBean\n').headers).toEqual(['name']);
+  });
+});
+
+describe('error messages point at the physical line', () => {
+  it('reports the real line after a multi-line cell', () => {
+    // The quoted cell spans lines 2-4, so "bad" is physically line 5 — while it is only the third
+    // row. Counting rows would point at the wrong line.
+    const r = parseCSV('a,b\n"x\ny\nz",2\nbad\n');
+    expect(r.errors).toEqual(['Row 5: Expected 2 columns, got 1']);
+  });
+
+  it('reports the real line after blank lines', () => {
+    const r = parseCSV('a,b\n1,2\n\n\nbad\n');
+    expect(r.errors).toEqual(['Row 5: Expected 2 columns, got 1']);
+  });
+});
