@@ -187,9 +187,12 @@ npm run typecheck
 
 ### Tests
 
-**1078 tests** across 39 files. A core of them are **golden tests**: they compare this
+**1097 tests** across 39 files. A core of them are **golden tests**: they compare this
 rewrite's output byte-for-byte against a frozen copy of the original implementation
 in `tests/legacy/`, so a refactor can't quietly change what reaches the paper.
+
+The count moves as the suite grows, and `npx vitest list` under-reports it (it skips the jsdom
+project). Read it off the last line of `npm test` instead: `Tests 1097 passed (1097)`.
 
 `npm test` runs the suite; `npm run typecheck` and `npm run build` are separate, and
 CI runs all three before anything is published. Two places deliberately diverge from
@@ -248,7 +251,7 @@ that work as a typed, component-based application.
 - `src/transport/` — Web Bluetooth and WebUSB.
 - `tests/legacy/` — a frozen copy of the original, kept so the golden tests can
   assert byte-identical output.
-- `tests/golden-*.test.ts` — 193 of the 1078 tests compare against that legacy
+- `tests/golden-*.test.ts` — 193 of the tests compare against that legacy
   code directly.
 
 **New here:** the React component architecture, the TypeScript data model, the
