@@ -71,8 +71,24 @@ describe('templates match legacy', () => {
 
   it('parseCSV / toCSV', () => {
     const csv = 'Name,Note\r\nAli,"a, b"\n"Sa""m",x\n\nbad\nLast,"multi word"\n';
-    expect(T.parseCSV(csv)).toEqual(legacyT.parseCSV(csv));
-    expect(T.parseCSV('')).toEqual(legacyT.parseCSV(''));
+    // The legacy parser and this one now disagree on exactly one thing, deliberately: it counted a
+    // blank line as a row when building the "Row N" message, so the broken row after a blank line was
+    // reported as row 5 when it is physically row 4. This parser reports the real line number. Assert
+    // the rest identically, so a future regression anywhere else in the parser still fails here.
+    const mine = T.parseCSV(csv);
+    const legacy = legacyT.parseCSV(csv);
+    expect(mine.headers).toEqual(legacy.headers);
+    expect(mine.records).toEqual(legacy.records);
+    const stripRow = (e: string) => e.replace(/^Row \d+: /, 'Row N: ');
+    expect(mine.errors.map(stripRow)).toEqual(legacy.errors.map(stripRow));
+    expect(mine.errors).toEqual(['Row 4: Expected 2 columns, got 1']);
+    expect(mine.errors).not.toEqual(legacy.errors);   // and the difference is real, not accidental
+
+    // An empty file: the legacy parser returned `headers: ['']` with no error, which reads as "one
+    // column with an empty name" — a successful parse of nothing. This parser reports an empty file,
+    // so the import surfaces a real problem instead of silently adding a blank column.
+    expect(T.parseCSV('')).toEqual({ headers: [], records: [], errors: ['Empty CSV file'] });
+    expect(legacyT.parseCSV('')).toEqual({ headers: [''], records: [], errors: [] });
     const recs = [{ Name: 'a,b', Note: 'q"q' }, { Name: 'x', Note: '' }];
     expect(T.toCSV(['Name', 'Note'], recs)).toEqual(legacyT.toCSV(['Name', 'Note'], recs));
   });

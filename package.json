@@ -3,6 +3,9 @@
   "version": "1.0.9",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "description": "Label designer for Phomemo thermal printers — a React + TypeScript rewrite inspired by transcriptionstream/phomymo.",
   "scripts": {
     "dev": "vite --host",

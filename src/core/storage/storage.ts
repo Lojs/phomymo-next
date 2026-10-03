@@ -40,6 +40,20 @@ function read<T>(key: string, fallback: T, isValid?: (v: unknown) => boolean): T
 const isRecord = (v: unknown): boolean => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isArray = (v: unknown): boolean => Array.isArray(v);
 
+/**
+ * A record read back from storage, safe to use `in` and `[]` on.
+ *
+ * The values here come from JSON.parse, and JSON.parse('{"__proto__": …}') produces an object whose
+ * `__proto__` is an *own* property rather than a prototype mutation — so `name in designs` walks the
+ * prototype chain and reports true for names that were never saved ("constructor", "toString"), while
+ * `Object.keys` does not list them. Object.create(null) drops that chain, so `in` means what it looks
+ * like it means and a lookup cannot return Object.prototype's members.
+ */
+const ownRecord = <T>(v: T): T => (isRecord(v) ? (Object.assign(Object.create(null) as object, v) as T) : v);
+
+/** True when `key` is a real own property, not an inherited Object.prototype member. */
+const hasOwn = (o: object, key: string): boolean => Object.prototype.hasOwnProperty.call(o, key);
+
 function write(key: string, value: unknown): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(value));
@@ -63,7 +77,7 @@ export interface Design {
 
 export interface DesignSummary { name: string; savedAt: number; elementCount: number; isTemplate: boolean; recordCount: number }
 
-const allDesigns = () => read<Record<string, Design>>(KEYS.DESIGNS, {}, isRecord);
+const allDesigns = () => ownRecord(read<Record<string, Design>>(KEYS.DESIGNS, {}, isRecord));
 
 export function saveDesign(name: string, design: Design): void {
   const n = name.trim();
@@ -73,8 +87,11 @@ export function saveDesign(name: string, design: Design): void {
   if (!write(KEYS.DESIGNS, all)) throw new Error('Failed to save design (storage full?)');
 }
 
-export const loadDesign = (name: string): Design | null => allDesigns()[name] ?? null;
-export const designExists = (name: string) => name.trim() in allDesigns();
+export const loadDesign = (name: string): Design | null => {
+  const all = allDesigns();
+  return hasOwn(all, name) ? all[name] ?? null : null;
+};
+export const designExists = (name: string) => hasOwn(allDesigns(), name.trim());
 
 export function listDesigns(): DesignSummary[] {
   return Object.entries(allDesigns())
@@ -96,7 +113,7 @@ export function deleteDesign(name: string): void {
 
 export function renameDesign(oldName: string, newName: string): void {
   const all = allDesigns();
-  if (!all[oldName]) throw new Error('Design not found');
+  if (!hasOwn(all, oldName) || !all[oldName]) throw new Error('Design not found');
   const n = newName.trim();
   if (!n) throw new Error('Design name is required');
   if (n !== oldName && all[n]) throw new Error('A design with that name already exists');
@@ -176,18 +193,18 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = { density: 6, copies: 1, feed: 32, printerModel: 'auto', tapeWidth: 12, ditherPreview: false };
 
-export const loadSettings = (): Settings => ({ ...DEFAULT_SETTINGS, ...read<Partial<Settings>>(KEYS.SETTINGS, {}, isRecord) });
+export const loadSettings = (): Settings => ({ ...DEFAULT_SETTINGS, ...ownRecord(read<Partial<Settings>>(KEYS.SETTINGS, {}, isRecord)) });
 export const saveSettings = (s: Settings) => void write(KEYS.SETTINGS, s);
 
 // ---- per-device memory (printer model, tape width) -------------------------------------------
 // Older versions stored a bare model string; newer ones an object. Read both.
 
 type DeviceEntry = string | { model?: string; tapeWidth?: number };
-const deviceMap = () => read<Record<string, DeviceEntry>>(KEYS.DEVICE_MAPPING, {}, isRecord);
+const deviceMap = () => ownRecord(read<Record<string, DeviceEntry>>(KEYS.DEVICE_MAPPING, {}, isRecord));
 const asObject = (e: DeviceEntry | undefined) => (typeof e === 'string' ? { model: e } : { ...(e ?? {}) });
 
-export const getDeviceModel = (name: string): string | null => asObject(deviceMap()[name]).model ?? null;
-export const getDeviceTapeWidth = (name: string): number | null => asObject(deviceMap()[name]).tapeWidth ?? null;
+export const getDeviceModel = (name: string): string | null => (hasOwn(deviceMap(), name) ? asObject(deviceMap()[name]).model ?? null : null);
+export const getDeviceTapeWidth = (name: string): number | null => (hasOwn(deviceMap(), name) ? asObject(deviceMap()[name]).tapeWidth ?? null : null);
 
 function patchDevice(name: string, patch: { model?: string; tapeWidth?: number }): void {
   if (!name) return;
@@ -206,7 +223,7 @@ export const saveCustomPrinters = (list: PrinterDefinition[]) => void write(KEYS
 // ---- multi-label presets -------------------------------------------------------------------
 
 export type MultiPreset = Omit<MultiLabelConfig, 'enabled' | 'cloneMode'>;
-export const loadMultiPresets = () => read<Record<string, MultiPreset>>(KEYS.MULTI_LABEL_PRESETS, {}, isRecord);
+export const loadMultiPresets = () => ownRecord(read<Record<string, MultiPreset>>(KEYS.MULTI_LABEL_PRESETS, {}, isRecord));
 export function saveMultiPreset(name: string, p: MultiPreset): void {
   write(KEYS.MULTI_LABEL_PRESETS, { ...loadMultiPresets(), [name.trim()]: p });
 }
@@ -218,5 +235,25 @@ export function deleteMultiPreset(name: string): void {
 
 // ---- autosave (work in progress survives a reload) ---------------------------------------------
 
-export const loadAutosave = (): Design | null => read<Design | null>(KEYS.AUTOSAVE, null, isRecord);
-export const saveAutosave = (d: Design) => void write(KEYS.AUTOSAVE, d);
+/**
+ * True when a stored autosave is safe to hand back to the app.
+ *
+ * isRecord alone was not enough: an object with no `elements` array and no `labelSize` passed it and
+ * then broke the first render that read `elements.length`, taking the whole app down at startup with
+ * no way to recover from the UI. This checks the two fields the app dereferences immediately, so a
+ * corrupt value degrades to "no autosave" — which the app already handles.
+ */
+const isAutosave = (v: unknown): boolean =>
+  isRecord(v) && Array.isArray((v as Design).elements) && isLabelSize((v as Design).labelSize);
+
+export const loadAutosave = (): Design | null => read<Design | null>(KEYS.AUTOSAVE, null, isAutosave);
+
+/**
+ * Persist the working design.
+ *
+ * Returns whether the write actually landed. localStorage throws QuotaExceededError when a base64
+ * image pushes the design past ~5MB, and the old version discarded the result — so an autosave that
+ * had been failing for weeks looked exactly like one that was working, and the work was only
+ * discovered to be gone at reload. Callers that can warn should check this.
+ */
+export const saveAutosave = (d: Design): boolean => write(KEYS.AUTOSAVE, d);

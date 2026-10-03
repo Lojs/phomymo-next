@@ -41,9 +41,21 @@ const DEFAULT_MULTI: MultiLabelConfig = { enabled: false, labelWidth: 10, labelH
 const HISTORY_MAX = 50;
 
 const initialLang = (): Lang => {
-  const saved = localStorage.getItem(storage.KEYS.LANG);
+  // Both reads can throw: localStorage.getItem throws outright when storage is disabled or the page
+  // is in a private mode that blocks it, and this runs during store construction, so an unhandled
+  // throw here meant a blank app with no way back. Fall back to the browser's language, then 'en'.
+  let saved: string | null = null;
+  try {
+    saved = localStorage.getItem(storage.KEYS.LANG);
+  } catch {
+    saved = null;
+  }
   if (saved === 'ar' || saved === 'en') return saved;
-  return navigator.language?.toLowerCase().startsWith('ar') ? 'ar' : 'en';
+  try {
+    return navigator.language?.toLowerCase().startsWith('ar') ? 'ar' : 'en';
+  } catch {
+    return 'en';
+  }
 };
 
 interface State extends Snapshot {
@@ -439,10 +451,31 @@ export const useStore = create<State>((set, get) => {
 
 // Autosave the working design (debounced) so a reload never loses work.
 let autosaveTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Write the working design out now, cancelling any pending debounce. */
+export function flushAutosave(): boolean {
+  clearTimeout(autosaveTimer);
+  autosaveTimer = undefined;
+  return storage.saveAutosave(useStore.getState().currentDesign());
+}
+
 useStore.subscribe((s, prev) => {
   if (s.elements === prev.elements && s.labelSize === prev.labelSize && s.multi === prev.multi && s.templateData === prev.templateData) return;
   clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(() => storage.saveAutosave(useStore.getState().currentDesign()), 600);
+  autosaveTimer = setTimeout(() => { autosaveTimer = undefined; storage.saveAutosave(useStore.getState().currentDesign()); }, 600);
 });
+
+// The debounce loses the last edit when the tab is closed or backgrounded within 600ms of it — on a
+// phone that is the normal way an app is closed, and on iOS the page can be discarded without
+// unload firing at all. pagehide is the reliable "going away" signal, and visibilitychange covers
+// the case where the tab merely loses focus.
+//
+// The guard checks for the method rather than for `document` alone: several node-environment tests
+// install a minimal `document` stand-in, and `typeof document !== 'undefined'` passed while
+// addEventListener did not exist.
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+  document.addEventListener('pagehide', flushAutosave);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushAutosave(); });
+}
 
 export const selectedBounds = () => boundsOfMany(useStore.getState().selected());
