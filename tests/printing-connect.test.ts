@@ -383,6 +383,32 @@ describe('the periodic battery refresh', () => {
     expect(h.calls.filter((c) => c === 'battery').length).toBe(1);
   });
 
+  it('stops when the printer drops the link by itself, not just on disconnect()', async () => {
+    // Out of paper is the common cause: the printer drops the link on its own, which fires
+    // gattserverdisconnected and never reaches disconnectPrinter(). The timer must stop on that
+    // path too, or it keeps firing at a dead transport.
+    const { printing } = await load();
+    await printing.connectPrinter('ble');
+    await vi.advanceTimersByTimeAsync(600);
+    // The printer vanishes: the transport reports it is gone and the app is told.
+    h.transport.isConnected = () => false;
+    h.transport.onDisconnect?.();
+    h.calls.length = 0;
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(h.calls).not.toContain('battery');
+  });
+
+  it('the app reports the drop instead of pretending it is still connected', async () => {
+    const { printing, store } = await load();
+    await printing.connectPrinter('ble');
+    await vi.advanceTimersByTimeAsync(600);
+    h.transport.isConnected = () => false;
+    h.transport.onDisconnect?.();
+    expect(store.getState().conn.connected).toBe(false);
+    expect(store.getState().conn.status).toBe('disconnected');
+    expect(store.getState().printerInfo).toBeNull();
+  });
+
   it('is not started for a USB connection, which has no battery command', async () => {
     const { printing } = await load();
     await printing.connectPrinter('usb');

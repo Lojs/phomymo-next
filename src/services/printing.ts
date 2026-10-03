@@ -126,6 +126,10 @@ export async function connectPrinter(type: 'ble' | 'usb', showAllDevices = false
     transport.onDisconnect = () => {
       st().setConn({ connected: false, type: null, busy: false, status: 'disconnected', error: null });
       st().setPrinterInfo(null);
+      // Stop the battery timer here, not only in disconnectPrinter(). The printer can drop the
+      // link on its own — out of paper is the common one — and that path never reaches
+      // disconnectPrinter(), so without this the timer keeps firing at a dead transport.
+      stopBatteryRefresh();
     };
     await transport.connect({ showAllDevices });
     if (!transport.isConnected()) throw new Error(tr('connectFailed'));
