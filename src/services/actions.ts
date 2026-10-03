@@ -111,7 +111,23 @@ function download(name: string, blob: Blob) {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
-const fileBase = () => (st().designName ?? 'label').replace(/[^\w\-. ]+/g, '_');
+/**
+ * A safe download filename derived from the design name.
+ *
+ * `\w` is ASCII-only, so the previous pattern replaced every Arabic character with an underscore:
+ * "ملصق القهوة" became "_____.json" — the Arabic app's own exports were unopenable and all
+ * indistinguishable. `\p{L}\p{N}` keeps letters of any script, which is the whole point for an app
+ * whose interface is Arabic-first.
+ */
+const fileBase = () =>
+  (st().designName ?? 'label')
+    .normalize('NFC')
+    // Path separators and characters no filesystem accepts, plus control characters.
+    .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_')
+    // Leading dots would hide the file, and a trailing dot or space is dropped by Windows.
+    .replace(/^[.\s]+/, '')
+    .replace(/[.\s]+$/, '')
+    .slice(0, 120) || 'label';
 
 export function exportJson() {
   const name = st().designName ?? tr('untitled');

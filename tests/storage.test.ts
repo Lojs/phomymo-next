@@ -261,8 +261,21 @@ describe('parseDesignJSON', () => {
     expect(m).toEqual({ enabled: true, labelWidth: 10, labelHeight: 20, labelsAcross: 4, gapMm: 2, cloneMode: true });
   });
 
-  it('ignores a multiLabel that is not an object', () => {
+  it('rejects a multiLabel that is not an object', () => {
+    // The previous behaviour was to drop it silently and report a successful import. That is worse
+    // than a refusal: the file said "this design uses a multi-label roll", the import reported
+    // success, and the user then printed single labels at the wrong size with no indication why.
     const json = JSON.stringify({ elements: [], labelSize: { width: 10, height: 10 }, multiLabel: 'nope' });
+    expect(() => S.parseDesignJSON(json)).toThrow(/multiLabel/i);
+  });
+
+  it('accepts an absent multiLabel', () => {
+    const json = JSON.stringify({ elements: [], labelSize: { width: 10, height: 10 } });
+    expect(S.parseDesignJSON(json).design.multiLabel).toBeUndefined();
+  });
+
+  it('accepts an explicitly null multiLabel', () => {
+    const json = JSON.stringify({ elements: [], labelSize: { width: 10, height: 10 }, multiLabel: null });
     expect(S.parseDesignJSON(json).design.multiLabel).toBeUndefined();
   });
 });

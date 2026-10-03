@@ -87,6 +87,14 @@ export const isConnected = () => !!transport && !!transport.isConnected();
 /** True while a print job owns the transport. Anything else that writes to it must wait. */
 export const isPrinting = () => printing;
 
+/** Set for the duration of printCurrent(), so its copies loop can be interrupted like a batch is. */
+let currentPrintController: AbortController | null = null;
+
+/** Stop the running single-label job. Takes effect between chunks, not between copies only. */
+export function cancelCurrentPrint(): void {
+  currentPrintController?.abort();
+}
+
 /**
  * Whether we still hold a device handle, so a reconnect can happen without showing the picker.
  * After a browser-initiated drop (a frozen background tab is the usual cause) the GATT link is
@@ -306,7 +314,14 @@ export async function rasterFor(elements: LabelElement[]): Promise<Raster> {
   return buildRaster(ready, layout, target, modeFor(ready, cfg), rotateForPrint);
 }
 
-async function sendRaster(raster: Raster, onProgress?: (pct: number) => void): Promise<void> {
+/**
+ * Send one raster.
+ *
+ * `signal` is forwarded to runOps, which already honours it between operations. Without it the cancel
+ * button could only take effect *between* labels: a single label is many chunks, and a long one kept
+ * feeding the printer after the user pressed cancel.
+ */
+async function sendRaster(raster: Raster, onProgress?: (pct: number) => void, signal?: AbortSignal): Promise<void> {
   const { settings, labelSize } = st();
   const { cfg } = currentTarget();
   const ops = encodePrint(raster, {
@@ -316,7 +331,7 @@ async function sendRaster(raster: Raster, onProgress?: (pct: number) => void): P
     feed: settings.feed,
     continuous: !!labelSize.continuous,
   });
-  await runOps(transport, ops, { onProgress });
+  await runOps(transport, ops, { onProgress, signal });
 }
 
 async function ensureConnected(): Promise<boolean> {
@@ -336,6 +351,8 @@ export async function printCurrent(): Promise<boolean> {
   // their chunks on one transport — the exact bug this guard exists to prevent.
   if (printing) return false;
   printing = true;
+  const controller = new AbortController();
+  currentPrintController = controller;
   try {
     if (!(await ensureConnected())) return false;
     const { elements, templateData, settings } = st();
@@ -351,18 +368,32 @@ export async function printCurrent(): Promise<boolean> {
     st().setPrint({ active: true, label: tr('printing'), current: 0, total: copies, sub: '' });
     const raster = await rasterFor(merged);
     for (let c = 1; c <= copies; c++) {
+      // Stop between copies too: a 99-copy run could not be interrupted at all before this.
+      if (controller.signal.aborted) {
+        st().toast(tr('printCancelled'));
+        return false;
+      }
       st().setPrint({ active: true, label: tr('printing'), current: c - 1, total: copies, sub: copies > 1 ? `${c}/${copies}` : '' });
-      await sendRaster(raster, (pct) =>
-        st().setPrint({ active: true, label: tr('printing'), current: c - 1, total: copies, sub: tr('sending', { pct }) }),
+      await sendRaster(
+        raster,
+        (pct) => st().setPrint({ active: true, label: tr('printing'), current: c - 1, total: copies, sub: tr('sending', { pct }) }),
+        controller.signal,
       );
       if (c < copies) await sleep(500);
     }
     st().toast(copies > 1 ? tr('printedCopies', { n: copies }) : tr('printComplete'), 'success');
     return true;
   } catch (e) {
+    // A cancel that lands mid-label surfaces as an AbortError from runOps. It is what the user asked
+    // for, so it is reported as a cancel rather than as a failure.
+    if ((e as Error)?.name === 'AbortError') {
+      st().toast(tr('printCancelled'));
+      return false;
+    }
     st().toast(`${tr('printFailed')}: ${(e as Error).message}`, 'error');
     return false;
   } finally {
+    currentPrintController = null;
     printing = false;
     st().setPrint(null);
   }
@@ -403,7 +434,11 @@ export async function printBatch(recordIndexes: number[], signal: AbortSignal): 
       }
       st().setPrint({ active: true, label: title, current: row, total: rows, sub: '' });
       const raster = await rasterFor(merged);
-      await sendRaster(raster, (pct) => st().setPrint({ active: true, label: title, current: row, total: rows, sub: tr('sending', { pct }) }));
+      await sendRaster(
+        raster,
+        (pct) => st().setPrint({ active: true, label: title, current: row, total: rows, sub: tr('sending', { pct }) }),
+        signal,
+      );
       if (row < rows - 1 && !signal.aborted) await sleep(500);
     }
     st().toast(tr('printedN', { n: recordIndexes.length }), 'success');

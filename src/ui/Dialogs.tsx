@@ -6,7 +6,7 @@ import { Button, Field, Modal, NumberInput, Segmented, Select, Slider, Toggle } 
 import { Icon } from './icons';
 import { deleteDesign, listDesigns, loadDesign, renameDesign, designExists, saveCustomPrinters, loadCustomPrinters, deleteMultiPreset, loadMultiPresets, saveMultiPreset, saveDeviceModel, DEFAULT_SETTINGS } from '../core/storage/storage';
 import { exportCsv, exportJson, exportPdf, exportPng, importCsvFile, importDesignFile, saveCurrentDesign } from '../services/actions';
-import { cancelBatch, isBatchRunning, printDensityTest, rememberModel, runBatch } from '../services/printing';
+import { cancelBatch, cancelCurrentPrint, isBatchRunning, isPrinting, printDensityTest, rememberModel, runBatch } from '../services/printing';
 import { BUILTIN_PRINTERS, type PrinterDefinition } from '../core/printers/definitions';
 import { LIMITS } from '../core/printers/presets';
 import { createEmptyRecord, evaluateExpressions, generateSampleData, substituteFields } from '../core/template/template';
@@ -319,7 +319,11 @@ export function PrintOverlay() {
         <h2>{p.label}</h2>
         <div className="bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${pct}%` }} /></div>
         <p className="field-hint mono">{p.total > 1 ? `${Math.min(p.current + 1, p.total)}/${p.total}` : ''} {p.sub}</p>
-        {isBatchRunning() && <Button icon="stop" onClick={cancelBatch}>{t('stop')}</Button>}
+        {/* Stop is offered for any job, not just a batch. A single print of a long design is many
+            chunks, and without this there was no way to interrupt one at all. */}
+        {(isBatchRunning() || isPrinting()) && (
+          <Button icon="stop" onClick={() => { cancelBatch(); cancelCurrentPrint(); }}>{t('stop')}</Button>
+        )}
       </div>
     </div>
   );

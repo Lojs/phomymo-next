@@ -164,16 +164,49 @@ export function parseDesignJSON(json: string): { name: string | null; design: De
   if (bad !== -1) throw new Error(`Invalid design format: element ${bad + 1} is malformed`);
   const design: Design = { elements: data.elements, labelSize: data.labelSize };
   if (data.isTemplate) design.isTemplate = true;
-  if (Array.isArray(data.templateFields)) design.templateFields = data.templateFields;
-  if (Array.isArray(data.templateData)) design.templateData = data.templateData;
-  if (data.multiLabel && typeof data.multiLabel === 'object') {
-    const m = data.multiLabel;
+
+  // Everything below used to be accepted on a bare Array.isArray / typeof-object check, so a file
+  // with `templateData: [1,2,3]` or `multiLabel: { labelsAcross: "four" }` imported "successfully"
+  // and then failed at print time, or printed "NaN" onto a label. Shape is checked here, at the
+  // boundary, so a bad file is rejected with a message instead.
+  if (data.templateFields !== undefined) {
+    if (!Array.isArray(data.templateFields) || data.templateFields.some((f: unknown) => typeof f !== 'string')) {
+      throw new Error('Invalid design format: templateFields must be an array of strings');
+    }
+    design.templateFields = data.templateFields;
+  }
+  if (data.templateData !== undefined) {
+    if (!Array.isArray(data.templateData)) throw new Error('Invalid design format: templateData must be an array');
+    data.templateData.forEach((r: unknown, i: number) => {
+      if (!isRecord(r)) throw new Error(`Invalid design format: templateData row ${i + 1} is not an object`);
+      for (const [k, v] of Object.entries(r as Record<string, unknown>)) {
+        // Values are substituted into text, so anything that is not a primitive would stringify to
+        // "[object Object]" on the label.
+        if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean' && v !== null) {
+          throw new Error(`Invalid design format: templateData row ${i + 1} field "${k}" is not a value`);
+        }
+      }
+    });
+    design.templateData = data.templateData;
+  }
+  if (data.multiLabel !== undefined && data.multiLabel !== null) {
+    if (!isRecord(data.multiLabel)) throw new Error('Invalid design format: multiLabel must be an object');
+    const m = data.multiLabel as Record<string, unknown>;
+    // A finite number, with the defaults applied only when the field is genuinely absent — `|| 10`
+    // also swallowed a legitimate 0 and turned NaN into 10 without complaint.
+    const num = (v: unknown, d: number, field: string) => {
+      if (v === undefined) return d;
+      if (typeof v !== 'number' || !Number.isFinite(v)) {
+        throw new Error(`Invalid design format: multiLabel.${field} must be a finite number`);
+      }
+      return v;
+    };
     design.multiLabel = {
       enabled: !!m.enabled,
-      labelWidth: m.labelWidth || 10,
-      labelHeight: m.labelHeight || 20,
-      labelsAcross: m.labelsAcross || 4,
-      gapMm: m.gapMm || 2,
+      labelWidth: num(m.labelWidth, 10, 'labelWidth'),
+      labelHeight: num(m.labelHeight, 20, 'labelHeight'),
+      labelsAcross: num(m.labelsAcross, 4, 'labelsAcross'),
+      gapMm: num(m.gapMm, 2, 'gapMm'),
       cloneMode: m.cloneMode !== false,
     };
   }
