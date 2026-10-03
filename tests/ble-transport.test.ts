@@ -277,6 +277,83 @@ describe('query commands', () => {
     ]);
   });
 
+  it('asks for every field on connect, cover included', async () => {
+    // Cover used to be left out of queryAll, so a lid that was already closed never generated its
+    // unprompted event and the field stayed blank in the UI. queryAll must ask for it.
+    const t = new BLETransport();
+    const sent: number[][] = [];
+    t.connected = true;
+    t.device = { gatt: { connected: true } };
+    t.writeChar = {
+      properties: { write: true, writeWithoutResponse: true },
+      writeValueWithoutResponse: async (b: ArrayBuffer) => void sent.push([...new Uint8Array(b)]),
+      writeValue: async () => {},
+    };
+    t.delay = async () => {}; // no need to wait 100ms per query
+    await t.queryAll();
+    expect(sent).toEqual([
+      [0x1f, 0x11, 0x08], // battery
+      [0x1f, 0x11, 0x11], // paper
+      [0x1f, 0x11, 0x12], // cover
+      [0x1f, 0x11, 0x07], // firmware
+      [0x1f, 0x11, 0x09], // serial
+    ]);
+  });
+
+  it('keeps going when one query fails, so the rest still arrive', async () => {
+    // send() retries through writeValue when writeValueWithoutResponse throws, so to make a query
+    // genuinely fail both write paths must reject.
+    const t = new BLETransport();
+    const sent: number[][] = [];
+    t.connected = true;
+    t.device = { gatt: { connected: true } };
+    // Fail only for the paper command, so the failure is about one field rather than a counter
+    // that would keep failing for everything after it.
+    const isPaper = (b: ArrayBuffer) => {
+      const a = [...new Uint8Array(b)];
+      return a[0] === 0x1f && a[1] === 0x11 && a[2] === 0x11;
+    };
+    const record = (b: ArrayBuffer) => {
+      if (isPaper(b)) throw new Error('write failed');
+      sent.push([...new Uint8Array(b)]);
+    };
+    t.writeChar = {
+      properties: { write: true, writeWithoutResponse: true },
+      writeValueWithoutResponse: async (b: ArrayBuffer) => record(b),
+      writeValue: async (b: ArrayBuffer) => record(b),
+    };
+    t.delay = async () => {};
+    await expect(t.queryAll()).resolves.toBeUndefined();
+    // Battery, cover, firmware and serial still went out; only paper was lost.
+    expect(sent).toContainEqual([0x1f, 0x11, 0x08]);
+    expect(sent).toContainEqual([0x1f, 0x11, 0x12]);
+    expect(sent).toContainEqual([0x1f, 0x11, 0x09]);
+    expect(sent).not.toContainEqual([0x1f, 0x11, 0x11]);
+  });
+
+  it('a failed write falls back to the write-with-response path', async () => {
+    // Worth pinning: after the first fallback every later write takes that path, because the
+    // transport remembers the choice rather than retrying the failing method each time.
+    const t = new BLETransport();
+    t.connected = true;
+    t.device = { gatt: { connected: true } };
+    let withoutResponse = 0;
+    let withResponse = 0;
+    t.writeChar = {
+      properties: { write: true, writeWithoutResponse: true },
+      writeValueWithoutResponse: async () => { withoutResponse += 1; throw new Error('nope'); },
+      writeValue: async () => { withResponse += 1; },
+    };
+    await t.send(new Uint8Array([1]));
+    expect(withoutResponse).toBe(1);
+    expect(withResponse).toBe(1);
+    expect(t._useWriteWithResponse).toBe(true);
+    await t.send(new Uint8Array([2]));
+    // Second send goes straight to writeValue; it does not retry the failing method.
+    expect(withoutResponse).toBe(1);
+    expect(withResponse).toBe(2);
+  });
+
   it('rejects an unknown query type', async () => {
     const t = new BLETransport();
     t.connected = true;

@@ -676,8 +676,10 @@ export class BLETransport {
 
     console.log('Querying all printer info...');
 
-    // Query each type with a small delay between
-    const queries = ['battery', 'paper', 'firmware', 'serial'];
+    // Query each type with a small delay between. Cover is included: the printer also pushes it
+    // unprompted when the lid moves, but asking on connect means a lid that was already closed
+    // (so never generated an event) still reports its state instead of showing nothing.
+    const queries = ['battery', 'paper', 'cover', 'firmware', 'serial'];
     for (const q of queries) {
       try {
         await this.query(q);
