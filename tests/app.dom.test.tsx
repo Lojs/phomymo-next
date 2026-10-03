@@ -6,7 +6,7 @@
  * the exact events an Arabic keyboard emits (`code` set, `key` carrying an Arabic character).
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, act } from '@testing-library/react';
 import React from 'react';
 import App from '../src/App';
 import { useStore } from '../src/state/store';
@@ -296,5 +296,90 @@ describe('Ctrl+S save', () => {
     render(<App />);
     fireEvent.keyDown(window, { code: 'KeyS', key: 's', ...ctrl });
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('App — keeping the session alive across a tab switch', () => {
+  // Two separate mechanisms, and it matters which does what:
+  //  - visibilitychange -> reconnectIfNeeded(): the real safety net. A frozen background tab drops
+  //    the GATT link, so returning restores it.
+  //  - Screen Wake Lock: stops the *device* sleeping while the app is in front of you. It does NOT
+  //    stop tab freezing — the browser releases the lock the moment the page hides.
+  const setVisibility = (v: 'visible' | 'hidden') => {
+    Object.defineProperty(document, 'visibilityState', { value: v, configurable: true });
+  };
+
+  it('tries to reconnect when the tab becomes visible again', async () => {
+    const spy = vi.spyOn(printing, 'reconnectIfNeeded').mockResolvedValue(true);
+    render(<App />);
+    setVisibility('visible');
+    fireEvent(document, new Event('visibilitychange'));
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('does not try to reconnect when the tab becomes hidden', async () => {
+    const spy = vi.spyOn(printing, 'reconnectIfNeeded').mockResolvedValue(true);
+    render(<App />);
+    setVisibility('hidden');
+    fireEvent(document, new Event('visibilitychange'));
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('stops listening once unmounted', async () => {
+    const spy = vi.spyOn(printing, 'reconnectIfNeeded').mockResolvedValue(true);
+    const { unmount } = render(<App />);
+    unmount();
+    setVisibility('visible');
+    fireEvent(document, new Event('visibilitychange'));
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('requests a screen wake lock while a printer is connected', async () => {
+    const request = vi.fn().mockResolvedValue({ release: vi.fn().mockResolvedValue(undefined) });
+    Object.defineProperty(navigator, 'wakeLock', { value: { request }, configurable: true });
+    useStore.setState({ conn: { type: 'ble', connected: true, busy: false, deviceName: 'M221', status: 'connected', error: null } });
+    render(<App />);
+    await waitFor(() => expect(request).toHaveBeenCalledWith('screen'));
+    useStore.setState({ conn: { type: null, connected: false, busy: false, deviceName: '', status: 'disconnected', error: null } });
+  });
+
+  it('does not request a wake lock while disconnected', async () => {
+    const request = vi.fn().mockResolvedValue({ release: vi.fn() });
+    Object.defineProperty(navigator, 'wakeLock', { value: { request }, configurable: true });
+    useStore.setState({ conn: { type: null, connected: false, busy: false, deviceName: '', status: 'disconnected', error: null } });
+    render(<App />);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('releases the wake lock when the printer disconnects', async () => {
+    const release = vi.fn().mockResolvedValue(undefined);
+    const request = vi.fn().mockResolvedValue({ release });
+    Object.defineProperty(navigator, 'wakeLock', { value: { request }, configurable: true });
+    useStore.setState({ conn: { type: 'ble', connected: true, busy: false, deviceName: 'M221', status: 'connected', error: null } });
+    render(<App />);
+    await waitFor(() => expect(request).toHaveBeenCalled());
+    act(() => {
+      useStore.setState({ conn: { type: null, connected: false, busy: false, deviceName: '', status: 'disconnected', error: null } });
+    });
+    await waitFor(() => expect(release).toHaveBeenCalled());
+  });
+
+  it('works when the browser has no wake lock support', async () => {
+    Object.defineProperty(navigator, 'wakeLock', { value: undefined, configurable: true });
+    useStore.setState({ conn: { type: 'ble', connected: true, busy: false, deviceName: 'M221', status: 'connected', error: null } });
+    expect(() => render(<App />)).not.toThrow();
+    useStore.setState({ conn: { type: null, connected: false, busy: false, deviceName: '', status: 'disconnected', error: null } });
+  });
+
+  it('survives a denied wake lock request', async () => {
+    const request = vi.fn().mockRejectedValue(new Error('NotAllowedError'));
+    Object.defineProperty(navigator, 'wakeLock', { value: { request }, configurable: true });
+    useStore.setState({ conn: { type: 'ble', connected: true, busy: false, deviceName: 'M221', status: 'connected', error: null } });
+    expect(() => render(<App />)).not.toThrow();
+    useStore.setState({ conn: { type: null, connected: false, busy: false, deviceName: '', status: 'disconnected', error: null } });
   });
 });

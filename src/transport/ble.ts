@@ -75,6 +75,16 @@ export class BLETransport {
   }
 
   /**
+   * True when a device handle is still held, so connect() can rebuild the GATT link without
+   * showing the picker. gattserverdisconnected clears the characteristics but leaves `this.device`
+   * in place, which is what makes a silent reconnect possible; disconnect() clears it, and so does
+   * a failed reconnect, after which only the user can reconnect.
+   */
+  hasRememberedDevice() {
+    return !!this.device;
+  }
+
+  /**
    * Main connect method
    * @param {Object} options - Connection options
    * @param {boolean} options.showAllDevices - If true, show all Bluetooth devices instead of filtering

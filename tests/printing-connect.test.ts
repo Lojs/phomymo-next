@@ -12,6 +12,8 @@ const h = vi.hoisted(() => ({
   transport: null as any,
   calls: [] as string[],
   connectResult: 'ok' as 'ok' | 'notConnected' | 'throws',
+  remembered: true,
+  connected: false,
   bluetooth: true,
   usb: true,
 }));
@@ -39,12 +41,11 @@ vi.mock('../src/core/render/label', () => ({
 }));
 
 function makeTransport(deviceName: string) {
-  let connected = false;
   return {
     onDisconnect: null as (() => void) | null,
     onPrinterInfo: null as ((...a: unknown[]) => void) | null,
     getDeviceName: () => deviceName,
-    isConnected: () => connected,
+    isConnected: () => h.connected,
     async connect() {
       h.calls.push('connect');
       if (h.connectResult === 'throws') {
@@ -52,11 +53,12 @@ function makeTransport(deviceName: string) {
         e.name = 'NetworkError';
         throw e;
       }
-      connected = h.connectResult === 'ok';
+      h.connected = h.connectResult === 'ok';
     },
-    async disconnect() { h.calls.push('disconnect'); connected = false; },
+    async disconnect() { h.calls.push('disconnect'); h.connected = false; },
     async queryAll() { h.calls.push('queryAll'); },
     async query(t: string) { h.calls.push(t); },
+    hasRememberedDevice() { return h.remembered; },
     async send() { h.calls.push('send'); },
     async delay() {},
     async waitForResponse() { return null; },
@@ -67,6 +69,8 @@ beforeEach(() => {
   vi.resetModules();
   h.calls.length = 0;
   h.connectResult = 'ok';
+  h.connected = false;
+  h.remembered = true;
   h.bluetooth = true;
   h.usb = true;
   h.transport = makeTransport('M221');
@@ -321,6 +325,83 @@ describe('currentTarget', () => {
   });
 });
 
+describe('reconnecting when the tab comes back', () => {
+  // A frozen background tab drops the GATT link through no fault of the app's. Returning to the tab
+  // should restore it without making the user pick the printer again.
+  // A real transport's connect() sets its own `connected` flag; the mock closes over one, so a
+  // drop is simulated by flipping that flag and then letting connect() flip it back.
+  const drop = (t: any) => { h.connected = false; t.onDisconnect?.(); };
+  const restore = () => { h.connected = true; };
+
+  it('restores the link after the printer dropped it on its own', async () => {
+    const { printing, store } = await load();
+    await printing.connectPrinter('ble');
+    drop(h.transport);
+    expect(store.getState().conn.connected).toBe(false);
+    // The reconnect reuses the remembered device; its connect() sets the flag back to true.
+    expect(await printing.reconnectIfNeeded()).toBe(true);
+    expect(store.getState().conn.connected).toBe(true);
+  });
+
+  it('re-runs the connect setup, so the printer readout comes back', async () => {
+    const { printing } = await load();
+    await printing.connectPrinter('ble');
+    drop(h.transport);
+    await printing.reconnectIfNeeded();
+    // afterConnect() ran again, so the status query was issued a second time.
+    expect(h.calls.filter((c) => c === 'connect').length).toBe(2);
+  });
+
+  it('does nothing when the user disconnected deliberately', async () => {
+    const { printing } = await load();
+    await printing.connectPrinter('ble');
+    await printing.disconnectPrinter();
+    expect(await printing.reconnectIfNeeded()).toBe(false);
+  });
+
+  it('does nothing while a print is in flight', async () => {
+    const { printing } = await load();
+    await printing.connectPrinter('ble');
+    drop(h.transport);
+    const p = printing.printCurrent();
+    expect(await printing.reconnectIfNeeded()).toBe(false);
+    await p.catch(() => {});
+  });
+
+  it('does nothing when no device is remembered, so the picker never opens unprompted', async () => {
+    const { printing, store } = await load();
+    await printing.connectPrinter('ble');
+    drop(h.transport);
+    h.remembered = false;
+    expect(await printing.reconnectIfNeeded()).toBe(false);
+    expect(store.getState().conn.connected).toBe(false);
+  });
+
+  it('does nothing when still connected', async () => {
+    const { printing } = await load();
+    await printing.connectPrinter('ble');
+    expect(await printing.reconnectIfNeeded()).toBe(false);
+  });
+
+  it('stays quiet when the reconnect attempt fails', async () => {
+    const { printing, store } = await load();
+    await printing.connectPrinter('ble');
+    drop(h.transport);
+    h.connectResult = 'throws';
+    await expect(printing.reconnectIfNeeded()).resolves.toBe(false);
+    expect(store.getState().conn.connected).toBe(false);
+    expect(store.getState().toasts.length).toBe(0);
+  });
+
+  it('does not try for USB, which needs a user gesture', async () => {
+    const { printing } = await load();
+    await printing.connectPrinter('usb');
+    drop(h.transport);
+    restore();
+    expect(await printing.reconnectIfNeeded()).toBe(false);
+  });
+});
+
 describe('the periodic battery refresh', () => {
   // The readout is otherwise only read once, at connect. Battery is the one field that goes stale
   // on its own while the printer sits idle.
@@ -391,7 +472,7 @@ describe('the periodic battery refresh', () => {
     await printing.connectPrinter('ble');
     await vi.advanceTimersByTimeAsync(600);
     // The printer vanishes: the transport reports it is gone and the app is told.
-    h.transport.isConnected = () => false;
+    h.connected = false;
     h.transport.onDisconnect?.();
     h.calls.length = 0;
     await vi.advanceTimersByTimeAsync(180_000);
@@ -402,7 +483,7 @@ describe('the periodic battery refresh', () => {
     const { printing, store } = await load();
     await printing.connectPrinter('ble');
     await vi.advanceTimersByTimeAsync(600);
-    h.transport.isConnected = () => false;
+    h.connected = false;
     h.transport.onDisconnect?.();
     expect(store.getState().conn.connected).toBe(false);
     expect(store.getState().conn.status).toBe('disconnected');

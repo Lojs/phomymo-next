@@ -87,6 +87,52 @@ export const isConnected = () => !!transport && !!transport.isConnected();
 /** True while a print job owns the transport. Anything else that writes to it must wait. */
 export const isPrinting = () => printing;
 
+/**
+ * Whether we still hold a device handle, so a reconnect can happen without showing the picker.
+ * After a browser-initiated drop (a frozen background tab is the usual cause) the GATT link is
+ * gone but the device reference survives, and `gatt.connect()` on it is allowed without a fresh
+ * user gesture. Once the picker path runs, or disconnect() clears the device, this goes false and
+ * only the user can bring the link back.
+ */
+export const canAutoReconnect = () => kind === 'ble' && !!transport?.hasRememberedDevice?.();
+
+/** True when the link dropped on its own rather than because the user asked it to. */
+let droppedByItself = false;
+
+/**
+ * Re-establish a link that was lost, without showing the device picker. Used when the tab becomes
+ * visible again after being backgrounded: the browser may have frozen it, which drops the GATT
+ * link, and the user should not have to re-pick their printer just because they looked away.
+ *
+ * Deliberately conservative:
+ *  - BLE only. A USB drop needs a user gesture to re-authorise, so there is nothing to do.
+ *  - never while a print is in flight: the reconnect would interleave with the raster chunks.
+ *  - only when a device is remembered, so this can never silently open the picker.
+ *
+ * On success the full afterConnect() path runs again, so the model, tape width and the printer's
+ * own readout are all re-established rather than assumed to have survived.
+ */
+export async function reconnectIfNeeded(): Promise<boolean> {
+  if (isConnected()) return false;
+  if (printing) return false;
+  if (!droppedByItself) return false;
+  if (!canAutoReconnect()) return false;
+  const type = kind;
+  if (type !== 'ble') return false;
+  try {
+    await transport.connect();
+    if (!transport.isConnected()) return false;
+    const deviceName: string = transport.getDeviceName?.() || '';
+    st().setConn({ type, connected: true, deviceName, busy: false, status: 'connected', error: null });
+    droppedByItself = false;
+    await afterConnect(type, deviceName);
+    return true;
+  } catch {
+    // Stay disconnected and quiet: the user still has the menu to reconnect by hand.
+    return false;
+  }
+}
+
 /** Turns a raw WebBluetooth/WebUSB error into a message worth showing the user. */
 export function friendlyConnectError(e: unknown): string {
   const err = e as { name?: string; message?: string };
@@ -130,6 +176,10 @@ export async function connectPrinter(type: 'ble' | 'usb', showAllDevices = false
       // link on its own — out of paper is the common one — and that path never reaches
       // disconnectPrinter(), so without this the timer keeps firing at a dead transport.
       stopBatteryRefresh();
+      // Record that this drop was not the user's doing, so returning to the tab can restore it.
+      // `kind` is deliberately left set: it is what reconnectIfNeeded() needs to know which
+      // transport to rebuild.
+      droppedByItself = true;
     };
     await transport.connect({ showAllDevices });
     if (!transport.isConnected()) throw new Error(tr('connectFailed'));
@@ -190,6 +240,8 @@ async function afterConnect(type: 'ble' | 'usb', deviceName: string): Promise<vo
 
 export async function disconnectPrinter(): Promise<void> {
   stopBatteryRefresh();
+  // The user asked for this, so returning to the tab must not undo it.
+  droppedByItself = false;
   try {
     await transport?.disconnect?.();
   } finally {
