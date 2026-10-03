@@ -15,6 +15,7 @@ export const en = {
   saved: 'Saved', deleted: 'Deleted', imported: 'Imported', rename: 'Rename', untitled: 'Untitled',
   confirmOverwriteName: 'A design named "{name}" already exists. Replace it?',
   confirmDeleteNamed: 'Delete "{name}"? This cannot be undone.',
+  autosaveFailed: 'Autosave failed — this browser\u2019s storage is full. Export your design to keep it.',
   confirmNew: 'Start a new design? Unsaved changes are kept in undo history only.',
   elementsCount: '{n} elements', recordsCount: '{n} records',
   // label panel

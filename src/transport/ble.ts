@@ -28,18 +28,22 @@ const QUERY_COMMANDS = {
 let sharedInstance: any = null;
 
 export class BLETransport {
+  // The four Web Bluetooth objects stay `any`: lib.dom types BluetoothRemoteGATTServer and the
+  // characteristic handles loosely, so naming a real type here would be a claim the compiler cannot
+  // check. The state below is ours, and is typed.
   device: any;
   server: any;
   service: any;
   writeChar: any;
   notifyChar: any;
-  connected: any;
-  onDisconnect: any;
-  onPrinterInfo: any;
-  _useWriteWithResponse: any;
-  _notificationHandler: any;
-  printerInfo: any;
-  _queryTimer: any;
+  connected: boolean;
+  onDisconnect: (() => void) | null;
+  onPrinterInfo: ((field: string, value: unknown, info: Record<string, unknown>) => void) | null;
+  _useWriteWithResponse: boolean;
+  /** The part of a `characteristicvaluechanged` event the transport reads. */
+  _notificationHandler: ((event: Event) => void) | null = null;
+  printerInfo: Record<string, unknown>;
+  _queryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.device = null;

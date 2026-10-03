@@ -10,7 +10,7 @@ import { presetsFor, presetKey, isKnownPreset, clamp, LIMITS } from '../core/pri
 import * as storage from '../core/storage/storage';
 import type { Design, Settings } from '../core/storage/storage';
 import { extractFields, type TemplateRecord } from '../core/template/template';
-import type { Lang } from '../i18n';
+import { translate, type Lang } from '../i18n';
 
 export interface Snapshot { elements: LabelElement[]; labelSize: LabelSize; multi: MultiLabelConfig }
 
@@ -451,31 +451,55 @@ export const useStore = create<State>((set, get) => {
 
 // Autosave the working design (debounced) so a reload never loses work.
 let autosaveTimer: ReturnType<typeof setTimeout> | undefined;
+let autosavePending = false;
+// Whether the last autosave failed. The warning is shown once per failure streak rather than on
+// every debounce tick: a full quota fails on every keystroke, and a toast per keystroke would bury
+// the editing the user is trying to do. It speaks again after a success, so a later failure is not
+// swallowed by an old one.
+let autosaveFailing = false;
 
-/** Write the working design out now, cancelling any pending debounce. */
+function runAutosave() {
+  autosavePending = false;
+  const ok = storage.saveAutosave(useStore.getState().currentDesign());
+  if (!ok && !autosaveFailing) {
+    const { lang, toast } = useStore.getState();
+    toast(translate(lang, 'autosaveFailed'), 'error');
+  }
+  autosaveFailing = !ok;
+}
+
+/**
+ * Write any pending autosave now instead of waiting out the debounce.
+ *
+ * Returns whether a write was attempted and succeeded, so a caller (a beforeunload handler, a test)
+ * can tell "nothing to save" from "the save failed".
+ */
 export function flushAutosave(): boolean {
+  if (!autosavePending) return true;
   clearTimeout(autosaveTimer);
-  autosaveTimer = undefined;
-  return storage.saveAutosave(useStore.getState().currentDesign());
+  runAutosave();
+  return !autosaveFailing;
 }
 
 useStore.subscribe((s, prev) => {
   if (s.elements === prev.elements && s.labelSize === prev.labelSize && s.multi === prev.multi && s.templateData === prev.templateData) return;
+  autosavePending = true;
   clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(() => { autosaveTimer = undefined; storage.saveAutosave(useStore.getState().currentDesign()); }, 600);
+  autosaveTimer = setTimeout(runAutosave, 600);
 });
 
-// The debounce loses the last edit when the tab is closed or backgrounded within 600ms of it — on a
-// phone that is the normal way an app is closed, and on iOS the page can be discarded without
-// unload firing at all. pagehide is the reliable "going away" signal, and visibilitychange covers
-// the case where the tab merely loses focus.
+// On a phone, closing or switching away from the tab can kill the page before the 600 ms debounce
+// fires, losing the last edit. `visibilitychange` (hidden) is the reliable signal there and pagehide
+// covers desktop navigation and the bfcache.
 //
 // The guard checks for the method rather than for `document` alone: several node-environment tests
 // install a minimal `document` stand-in, and `typeof document !== 'undefined'` passed while
 // addEventListener did not exist.
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
-  document.addEventListener('pagehide', flushAutosave);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushAutosave(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushAutosave();
+  });
+  document.addEventListener('pagehide', () => flushAutosave());
 }
 
 export const selectedBounds = () => boundsOfMany(useStore.getState().selected());

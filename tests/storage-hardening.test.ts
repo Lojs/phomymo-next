@@ -87,28 +87,90 @@ describe('saveAutosave reports failure instead of failing silently', () => {
   });
 });
 
-describe('a corrupt autosave degrades to "none"', () => {
+describe('a corrupt autosave is salvaged, not discarded', () => {
+  // Rejecting the whole autosave over one bad field cost the user everything; so did letting a partial
+  // one through and crashing at startup. Now bad elements are dropped individually and the rest of
+  // the design survives.
   it.each([
-    ['an object with no elements', { labelSize: { width: 40, height: 30 } }],
-    ['an object with no labelSize', { elements: [] }],
-    ['elements that is not an array', { elements: 'nope', labelSize: { width: 40, height: 30 } }],
-    ['a malformed labelSize', { elements: [], labelSize: { width: 'wide', height: 30 } }],
     ['an array', []],
     ['a bare string', 'design'],
-  ])('ignores %s', (_label, value) => {
-    store[KEYS.AUTOSAVE] = JSON.stringify(value);
+    ['null', null],
+    ['unparseable JSON', '{not json'],
+  ])('returns null for %s — there is nothing to salvage', (_label, value) => {
+    if (typeof value === 'string') store[KEYS.AUTOSAVE] = value;
+    else store[KEYS.AUTOSAVE] = JSON.stringify(value);
     expect(loadAutosave()).toBeNull();
   });
 
-  it('still loads a well-formed autosave', () => {
-    const d = design();
+  it('drops a malformed element and keeps the good ones', () => {
+    const good = createText('A');
+    store[KEYS.AUTOSAVE] = JSON.stringify({
+      elements: [good, { type: 'text' }, { nope: true }, createText('B')],
+      labelSize: { width: 40, height: 30 },
+    });
+    const back = loadAutosave();
+    expect(back?.elements).toHaveLength(2);
+    expect(back?.elements.map((e) => (e as { text: string }).text)).toEqual(['A', 'B']);
+  });
+
+  it('falls back to a default label size when it is missing', () => {
+    store[KEYS.AUTOSAVE] = JSON.stringify({ elements: [createText('A')] });
+    expect(loadAutosave()?.labelSize).toEqual({ width: 40, height: 30 });
+  });
+
+  it('keeps a valid label size', () => {
+    store[KEYS.AUTOSAVE] = JSON.stringify({ elements: [], labelSize: { width: 30, height: 20, round: true } });
+    expect(loadAutosave()?.labelSize).toMatchObject({ width: 30, round: true });
+  });
+
+  it('returns null when nothing recognisable survives', () => {
+    // An object with neither elements nor a label size is not a design; opening an empty one would
+    // look to the user like their work vanished.
+    store[KEYS.AUTOSAVE] = JSON.stringify({ somethingElse: true });
+    expect(loadAutosave()).toBeNull();
+  });
+
+  it('repairs a non-finite multiLabel field rather than propagating NaN to a label', () => {
+    store[KEYS.AUTOSAVE] = JSON.stringify({
+      elements: [createText('A')],
+      labelSize: { width: 40, height: 30 },
+      multiLabel: { enabled: true, labelsAcross: 'four' },
+    });
+    expect(loadAutosave()?.multiLabel).toMatchObject({ labelsAcross: 4 });
+  });
+
+  it('keeps a legitimate zero in a multiLabel field', () => {
+    store[KEYS.AUTOSAVE] = JSON.stringify({
+      elements: [createText('A')],
+      labelSize: { width: 40, height: 30 },
+      multiLabel: { enabled: true, labelWidth: 0 },
+    });
+    expect(loadAutosave()?.multiLabel?.labelWidth).toBe(0);
+  });
+
+  it('still loads a well-formed autosave unchanged', () => {
+    const d = { elements: [createText('A'), createText('B')], labelSize: { width: 50, height: 25 } };
     saveAutosave(d);
-    expect(loadAutosave()?.elements).toHaveLength(1);
+    expect(loadAutosave()?.elements).toHaveLength(2);
+    expect(loadAutosave()?.labelSize).toMatchObject({ width: 50 });
+  });
+});
+
+describe('a corrupt entry cannot break the designs list', () => {
+  it('drops a non-object entry and keeps the rest', () => {
+    // listDesigns() reads d.elements?.length off every entry, so one bad value used to throw and take
+    // the whole library with it — including the dialog you would use to delete it.
+    store[KEYS.DESIGNS] = JSON.stringify({ Good: { elements: [createText('A')], labelSize: { width: 40, height: 30 } }, Bad: 'nope', AlsoBad: null });
+    expect(listDesigns().map((d) => d.name)).toEqual(['Good']);
   });
 
-  it('ignores unparseable JSON', () => {
-    store[KEYS.AUTOSAVE] = '{not json';
-    expect(loadAutosave()).toBeNull();
+  it('a design named "__proto__" still survives the filter', () => {
+    // Written with a computed key on purpose: `{ __proto__: x }` in an object literal sets the
+    // prototype rather than creating a property, so JSON.stringify drops it and the test would pass
+    // without ever producing the key it claims to test.
+    store[KEYS.DESIGNS] = JSON.stringify({ ['__proto__']: { elements: [createText('A')], labelSize: { width: 40, height: 30 } } });
+    expect(store[KEYS.DESIGNS]).toContain('__proto__');
+    expect(listDesigns().map((d) => d.name)).toContain('__proto__');
   });
 });
 
@@ -149,5 +211,56 @@ describe('settings', () => {
   it('a stored "__proto__" cannot become a setting', () => {
     store[KEYS.SETTINGS] = '{"__proto__":{"density":99}}';
     expect(loadSettings().density).toBe(6);
+  });
+});
+
+describe('a failing autosave says so, once per failure streak', () => {
+  // saveAutosave returns false on a full quota. Nothing told the user, so an autosave that had been
+  // failing for weeks looked exactly like a working one — and the work was only found to be gone at
+  // reload. The toast is per streak, not per keystroke: the quota fails on every edit.
+  const fillStorage = () => {
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: { getItem: () => null, setItem: () => { throw new Error('QuotaExceededError'); }, removeItem: () => {}, clear: () => {} },
+      configurable: true, writable: true,
+    });
+  };
+
+  it('warns on the first failure', async () => {
+    const store = await import('../src/state/store');
+    store.useStore.getState().newDesign();
+    store.useStore.setState({ toasts: [] });
+    fillStorage();
+    store.useStore.getState().add(createText('A'));
+    await new Promise((r) => setTimeout(r, 700));
+    const toasts = store.useStore.getState().toasts;
+    expect(toasts.some((t) => t.kind === 'error')).toBe(true);
+  });
+
+  it('stays quiet on the failures that follow, so it cannot bury the editing', async () => {
+    const store = await import('../src/state/store');
+    store.useStore.getState().newDesign();
+    fillStorage();
+    const countToasts = () => store.useStore.getState().toasts.length;
+    store.useStore.getState().add(createText('B'));
+    await new Promise((r) => setTimeout(r, 700));
+    const afterFirst = countToasts();
+    for (let i = 0; i < 3; i++) {
+      store.useStore.getState().add(createText(`C${i}`));
+      await new Promise((r) => setTimeout(r, 700));
+    }
+    expect(countToasts()).toBe(afterFirst);
+  });
+
+  it('flushAutosave reports the failure', async () => {
+    const store = await import('../src/state/store');
+    store.useStore.getState().newDesign();
+    fillStorage();
+    store.useStore.getState().add(createText('D'));
+    expect(store.flushAutosave()).toBe(false);
+  });
+
+  it('flushAutosave is a no-op, and says so, when nothing is pending', async () => {
+    const store = await import('../src/state/store');
+    expect(store.flushAutosave()).toBe(true);
   });
 });

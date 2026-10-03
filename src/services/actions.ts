@@ -40,6 +40,41 @@ export function addShape(type: ShapeType) {
 
 export interface LoadedImage { dataUrl: string; width: number; height: number }
 
+/**
+ * Longest side, in pixels, at which an image is stored. The label canvas is 8 px/mm, so even a
+ * 100 mm label is only 800 px across; a 12 MP phone photo kept at full resolution is pure waste and,
+ * stored as a base64 string in localStorage (~5 MB for everything), fills the quota with one image
+ * and then silently stops autosaving.
+ */
+export const MAX_IMAGE_SIDE = 1200;
+
+/**
+ * Re-encode an image no larger than MAX_IMAGE_SIDE. Small images are returned untouched.
+ *
+ * JPEG stays JPEG — photos compress far better that way — and everything else stays PNG so
+ * transparency survives. Every failure path returns the original rather than refusing the image:
+ * a slightly too large picture is better than no picture.
+ */
+export function shrinkImage(source: CanvasImageSource, width: number, height: number, dataUrl: string, mime: string): LoadedImage {
+  const longest = Math.max(width, height);
+  if (longest <= MAX_IMAGE_SIDE) return { dataUrl, width, height };
+  try {
+    const k = MAX_IMAGE_SIDE / longest;
+    const w = Math.max(1, Math.round(width * k));
+    const h = Math.max(1, Math.round(height * k));
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return { dataUrl, width, height };
+    ctx.drawImage(source, 0, 0, w, h);
+    const out = mime === 'image/jpeg' ? cv.toDataURL('image/jpeg', 0.85) : cv.toDataURL('image/png');
+    return out && out.startsWith('data:image/') ? { dataUrl: out, width: w, height: h } : { dataUrl, width, height };
+  } catch {
+    return { dataUrl, width, height };
+  }
+}
+
 const readAsDataURL = (file: Blob) =>
   new Promise<string>((resolve, reject) => {
     const r = new FileReader();
@@ -63,7 +98,7 @@ async function loadPdfFirstPage(file: File): Promise<LoadedImage> {
   cv.height = viewport.height;
   try {
     await page.render({ canvas: cv, canvasContext: cv.getContext('2d')!, viewport }).promise;
-    return { dataUrl: cv.toDataURL('image/png'), width: cv.width, height: cv.height };
+    return shrinkImage(cv, cv.width, cv.height, cv.toDataURL('image/png'), 'image/png');
   } finally {
     await task.destroy();
   }
@@ -74,7 +109,7 @@ export async function loadImageFile(file: File): Promise<LoadedImage> {
   const dataUrl = await readAsDataURL(file);
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve({ dataUrl, width: img.naturalWidth, height: img.naturalHeight });
+    img.onload = () => resolve(shrinkImage(img, img.naturalWidth, img.naturalHeight, dataUrl, file.type));
     img.onerror = () => reject(new Error('image'));
     img.src = dataUrl;
   });

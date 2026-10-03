@@ -77,7 +77,20 @@ export interface Design {
 
 export interface DesignSummary { name: string; savedAt: number; elementCount: number; isTemplate: boolean; recordCount: number }
 
-const allDesigns = () => ownRecord(read<Record<string, Design>>(KEYS.DESIGNS, {}, isRecord));
+/**
+ * Saved designs, as a prototype-free record.
+ *
+ * Entries that are not objects are dropped rather than kept: listDesigns() reads
+ * `d.elements?.length` and `d.savedAt` off each one, so a single corrupt entry (a hand-edited
+ * localStorage value, a half-written record) would throw and take the whole library with it — with no
+ * way to recover from the UI, because the dialog that would let you delete it is the one that failed.
+ */
+const allDesigns = () => {
+  const raw = read<Record<string, unknown>>(KEYS.DESIGNS, {}, isRecord);
+  const out = ownRecord<Record<string, Design>>({} as Record<string, Design>);
+  for (const k of Object.keys(raw)) if (isRecord(raw[k])) out[k] = raw[k] as Design;
+  return out;
+};
 
 export function saveDesign(name: string, design: Design): void {
   const n = name.trim();
@@ -268,18 +281,58 @@ export function deleteMultiPreset(name: string): void {
 
 // ---- autosave (work in progress survives a reload) ---------------------------------------------
 
-/**
- * True when a stored autosave is safe to hand back to the app.
- *
- * isRecord alone was not enough: an object with no `elements` array and no `labelSize` passed it and
- * then broke the first render that read `elements.length`, taking the whole app down at startup with
- * no way to recover from the UI. This checks the two fields the app dereferences immediately, so a
- * corrupt value degrades to "no autosave" — which the app already handles.
- */
-const isAutosave = (v: unknown): boolean =>
-  isRecord(v) && Array.isArray((v as Design).elements) && isLabelSize((v as Design).labelSize);
+/** The size an autosave falls back to when its own is unusable. */
+const DEFAULT_LABEL_SIZE: LabelSize = { width: 40, height: 30 };
 
-export const loadAutosave = (): Design | null => read<Design | null>(KEYS.AUTOSAVE, null, isAutosave);
+/**
+ * Rebuild a usable design from a stored autosave, keeping whatever is intact.
+ *
+ * Two failure modes were being conflated. A value that is not an object at all is discarded — there is
+ * nothing to salvage. But a value that IS a design with one broken field must not cost the user the
+ * rest of their work: previously the whole autosave was rejected, and since the check only ran
+ * `isRecord`, a partial one got through and then broke the first render that read `elements.length`,
+ * taking the app down at startup on every reload with no way to recover from the UI.
+ *
+ * So bad elements are dropped individually, and a missing label size takes the default. A design can
+ * come back with fewer elements than it had, but never none of them.
+ */
+export function loadAutosave(): Design | null {
+  const raw = read<unknown>(KEYS.AUTOSAVE, null, isRecord);
+  if (!isRecord(raw)) return null;
+  const d = raw as Record<string, unknown>;
+
+  const elements = Array.isArray(d.elements) ? (d.elements.filter(isElement) as LabelElement[]) : [];
+  const labelSize = isLabelSize(d.labelSize) ? (d.labelSize as LabelSize) : { ...DEFAULT_LABEL_SIZE };
+
+  // Nothing recognisable survived: treat it as no autosave rather than opening an empty design, which
+  // would look to the user like their work vanished.
+  if (!elements.length && !isLabelSize(d.labelSize)) return null;
+
+  const design: Design = { elements, labelSize };
+  if (d.isTemplate) design.isTemplate = true;
+  if (Array.isArray(d.templateFields)) design.templateFields = d.templateFields.filter((f): f is string => typeof f === 'string');
+  if (Array.isArray(d.templateData)) design.templateData = d.templateData.filter(isRecord) as TemplateRecord[];
+  if (isRecord(d.multiLabel)) {
+    const m = d.multiLabel as Record<string, unknown>;
+    design.multiLabel = {
+      enabled: !!m.enabled,
+      labelWidth: finiteOr(m.labelWidth, 10),
+      labelHeight: finiteOr(m.labelHeight, 20),
+      labelsAcross: finiteOr(m.labelsAcross, 4),
+      gapMm: finiteOr(m.gapMm, 2),
+      cloneMode: m.cloneMode !== false,
+    };
+  }
+  return design;
+}
+
+/**
+ * A finite number, or the default.
+ *
+ * `value || fallback` would also replace a legitimate 0 — and 0 is a real labelWidth for a roll — so
+ * the check is on the value itself rather than on its truthiness.
+ */
+const finiteOr = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
 /**
  * Persist the working design.

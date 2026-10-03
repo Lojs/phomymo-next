@@ -14,6 +14,7 @@ export const ar: Record<Key, string> = {
   saved: 'تم الحفظ', deleted: 'تم الحذف', imported: 'تم الاستيراد', rename: 'إعادة تسمية', untitled: 'بدون عنوان',
   confirmOverwriteName: 'يوجد تصميم بالاسم "{name}" بالفعل. هل تستبدله؟',
   confirmDeleteNamed: 'حذف "{name}"؟ لا يمكن التراجع عن هذا.',
+  autosaveFailed: '\u0641\u0634\u0644 \u0627\u0644\u062d\u0641\u0638 \u0627\u0644\u062a\u0644\u0642\u0627\u0626\u064a\u064b \u2014 \u0645\u062e\u0632\u0646 \u0627\u0644\u062a\u062e\u0632\u064a\u0646 \u0645\u0645\u062a\u0644\u0626 \u0641\u064a \u0647\u0630\u0647 \u0627\u0644\u0645\u062a\u0635\u0641\u062d. \u0635\u0645\u0651\u0645 \u0627\u0644\u062a\u0635\u0645\u064a\u0645 \u0644\u062d\u0641\u0638\u0647.',
   confirmNew: 'بدء تصميم جديد؟ التغييرات غير المحفوظة تبقى في سجل التراجع فقط.',
   elementsCount: '{n} عناصر', recordsCount: '{n} سجلات',
   label: 'الملصق', labelSize: 'حجم الملصق', orientation: 'الاتجاه', portrait: 'عمودي', landscape: 'أفقي', custom: 'مخصص…', roundLabels: 'ملصقات دائرية', continuousTape: 'شريط متصل',
