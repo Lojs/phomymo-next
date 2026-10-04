@@ -6,7 +6,7 @@ import type { LabelElement } from '../model/elements';
 import type { LabelSize, MultiLabelConfig } from '../render/layout';
 import type { TemplateRecord } from '../template/template';
 import type { PrinterDefinition } from '../printers/definitions';
-import { LIMITS } from '../printers/presets';
+import { LIMITS, clamp } from '../printers/presets';
 
 export const KEYS = {
   DEVICE_MAPPING: 'phomymo_device_models',
@@ -165,15 +165,11 @@ const isLabelSize = (v: unknown): boolean => {
   return true;
 };
 
-/** Clamp a value to [min, max], but preserve 0 as a legitimate value. */
-const clampOrZero = (v: number, min: number, max: number): number =>
-  v === 0 ? 0 : Math.min(max, Math.max(min, v));
-
 /** Clamp a label size to the app's limits so a corrupt file can't allocate an enormous canvas. */
 const clampLabelSize = (s: LabelSize): LabelSize => ({
   ...s,
-  width: clampOrZero(s.width, LIMITS.label.minW, LIMITS.label.maxW),
-  height: clampOrZero(s.height, LIMITS.label.minH, LIMITS.label.maxH),
+  width: clamp(s.width, LIMITS.label.minW, LIMITS.label.maxW),
+  height: clamp(s.height, LIMITS.label.minH, LIMITS.label.maxH),
 });
 
 export function parseDesignJSON(json: string): { name: string | null; design: Design } {
@@ -228,10 +224,10 @@ export function parseDesignJSON(json: string): { name: string | null; design: De
     };
     design.multiLabel = {
       enabled: !!m.enabled,
-      labelWidth: clampOrZero(num(m.labelWidth, 10, 'labelWidth'), LIMITS.label.minW, LIMITS.label.maxW),
-      labelHeight: clampOrZero(num(m.labelHeight, 20, 'labelHeight'), LIMITS.label.minH, LIMITS.label.maxH),
-      labelsAcross: clampOrZero(num(m.labelsAcross, 4, 'labelsAcross'), LIMITS.multi.minAcross, LIMITS.multi.maxAcross),
-      gapMm: clampOrZero(num(m.gapMm, 2, 'gapMm'), LIMITS.multi.minGap, LIMITS.multi.maxGap),
+      labelWidth: clamp(num(m.labelWidth, 10, 'labelWidth'), LIMITS.multi.minLabelW, LIMITS.multi.maxLabelW),
+      labelHeight: clamp(num(m.labelHeight, 20, 'labelHeight'), LIMITS.multi.minLabelH, LIMITS.multi.maxLabelH),
+      labelsAcross: clamp(num(m.labelsAcross, 4, 'labelsAcross'), LIMITS.multi.minAcross, LIMITS.multi.maxAcross),
+      gapMm: clamp(num(m.gapMm, 2, 'gapMm'), LIMITS.multi.minGap, LIMITS.multi.maxGap),
       cloneMode: m.cloneMode !== false,
     };
   }
@@ -254,11 +250,11 @@ export const DEFAULT_SETTINGS: Settings = { density: 6, copies: 1, feed: 32, pri
 export const loadSettings = (): Settings => {
   const raw = ownRecord(read<Partial<Settings>>(KEYS.SETTINGS, {}, isRecord));
   return {
-    density: clampOrZero(typeof raw.density === 'number' && Number.isFinite(raw.density) ? raw.density : DEFAULT_SETTINGS.density, 1, 8),
-    copies: clampOrZero(typeof raw.copies === 'number' && Number.isFinite(raw.copies) ? raw.copies : DEFAULT_SETTINGS.copies, 1, 99),
-    feed: clampOrZero(typeof raw.feed === 'number' && Number.isFinite(raw.feed) ? raw.feed : DEFAULT_SETTINGS.feed, 0, 255),
+    density: clamp(typeof raw.density === 'number' && Number.isFinite(raw.density) ? raw.density : DEFAULT_SETTINGS.density, 1, 8),
+    copies: clamp(typeof raw.copies === 'number' && Number.isFinite(raw.copies) ? raw.copies : DEFAULT_SETTINGS.copies, 1, 99),
+    feed: clamp(typeof raw.feed === 'number' && Number.isFinite(raw.feed) ? raw.feed : DEFAULT_SETTINGS.feed, 0, 255),
     printerModel: typeof raw.printerModel === 'string' ? raw.printerModel : DEFAULT_SETTINGS.printerModel,
-    tapeWidth: clampOrZero(typeof raw.tapeWidth === 'number' && Number.isFinite(raw.tapeWidth) ? raw.tapeWidth : DEFAULT_SETTINGS.tapeWidth, 0, 100),
+    tapeWidth: clamp(typeof raw.tapeWidth === 'number' && Number.isFinite(raw.tapeWidth) ? raw.tapeWidth : DEFAULT_SETTINGS.tapeWidth, 0, 100),
     ditherPreview: typeof raw.ditherPreview === 'boolean' ? raw.ditherPreview : DEFAULT_SETTINGS.ditherPreview,
   };
 };
@@ -338,10 +334,10 @@ export function loadAutosave(): Design | null {
     const m = d.multiLabel as Record<string, unknown>;
     design.multiLabel = {
       enabled: !!m.enabled,
-      labelWidth: clampOrZero(finiteOr(m.labelWidth, 10), LIMITS.label.minW, LIMITS.label.maxW),
-      labelHeight: clampOrZero(finiteOr(m.labelHeight, 20), LIMITS.label.minH, LIMITS.label.maxH),
-      labelsAcross: clampOrZero(finiteOr(m.labelsAcross, 4), LIMITS.multi.minAcross, LIMITS.multi.maxAcross),
-      gapMm: clampOrZero(finiteOr(m.gapMm, 2), LIMITS.multi.minGap, LIMITS.multi.maxGap),
+      labelWidth: clamp(finiteOr(m.labelWidth, 10), LIMITS.multi.minLabelW, LIMITS.multi.maxLabelW),
+      labelHeight: clamp(finiteOr(m.labelHeight, 20), LIMITS.multi.minLabelH, LIMITS.multi.maxLabelH),
+      labelsAcross: clamp(finiteOr(m.labelsAcross, 4), LIMITS.multi.minAcross, LIMITS.multi.maxAcross),
+      gapMm: clamp(finiteOr(m.gapMm, 2), LIMITS.multi.minGap, LIMITS.multi.maxGap),
       cloneMode: m.cloneMode !== false,
     };
   }

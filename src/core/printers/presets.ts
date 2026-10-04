@@ -42,7 +42,11 @@ export const sizeKey = (s: LabelSize) => (s.round ? `${s.width}mm Round` : `${s.
 
 export const LIMITS = {
   label: { minW: 10, maxW: 100, minH: 10, maxH: 200 },
-  multi: { minAcross: 1, maxAcross: 8, minGap: 0, maxGap: 10 },
+  // A multi-label ROLL is cut into narrow strips, so its per-label size has its own (smaller)
+  // minimum than a whole label: the roll dialog accepts 5 mm. Clamping a saved roll to
+  // `label.minW/minH` (10 mm) silently rewrote a valid 5 mm roll to 10 mm every time the design
+  // was reloaded.
+  multi: { minAcross: 1, maxAcross: 8, minGap: 0, maxGap: 10, minLabelW: 5, maxLabelW: 100, minLabelH: 5, maxLabelH: 200 },
   copies: { min: 1, max: 99 },
   zoom: { min: 0.25, max: 3, step: 0.25 },
   font: { min: 6, max: 200 },

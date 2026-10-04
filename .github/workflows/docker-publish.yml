@@ -37,6 +37,10 @@ jobs:
       - name: تثبيت التبعيات
         run: npm ci
 
+      # tests/nginx-runtime.test.ts starts a real nginx and skips itself when there is none.
+      - name: تثبيت nginx لاختبار الإعدادات
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends nginx-light
+
       - name: التحقق من الأنواع
         run: npm run typecheck
 
@@ -49,6 +53,9 @@ jobs:
   build-and-push:
     # Nothing is published unless verify passed. This is the line that was missing.
     needs: verify
+    # Pull requests are verified but never published: they run code from a fork or an unmerged
+    # branch, and a sha-… image tag would put that code on the registry this app is deployed from.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -201,8 +201,8 @@ export function MultiDialog() {
       </svg>
       <p className="field-hint mono">{totalMm.toFixed(0)} {t('mm')} {totalMm > 100 ? '⚠' : ''}</p>
       <div className="grid-2">
-        <Field label={t('width')}><NumberInput value={cfg.labelWidth} min={5} max={100} unit={t('mm')} onChange={(v) => upd({ labelWidth: v })} /></Field>
-        <Field label={t('height')}><NumberInput value={cfg.labelHeight} min={5} max={200} unit={t('mm')} onChange={(v) => upd({ labelHeight: v })} /></Field>
+        <Field label={t('width')}><NumberInput value={cfg.labelWidth} min={LIMITS.multi.minLabelW} max={LIMITS.multi.maxLabelW} unit={t('mm')} onChange={(v) => upd({ labelWidth: v })} /></Field>
+        <Field label={t('height')}><NumberInput value={cfg.labelHeight} min={LIMITS.multi.minLabelH} max={LIMITS.multi.maxLabelH} unit={t('mm')} onChange={(v) => upd({ labelHeight: v })} /></Field>
         <Field label={t('labelsAcross')}><NumberInput value={cfg.labelsAcross} min={LIMITS.multi.minAcross} max={LIMITS.multi.maxAcross} onChange={(v) => upd({ labelsAcross: Math.round(v) })} /></Field>
         <Field label={t('gap')}><NumberInput value={cfg.gapMm} min={LIMITS.multi.minGap} max={LIMITS.multi.maxGap} step={0.5} unit={t('mm')} onChange={(v) => upd({ gapMm: v })} /></Field>
       </div>

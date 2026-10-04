@@ -139,13 +139,62 @@ describe('a corrupt autosave is salvaged, not discarded', () => {
     expect(loadAutosave()?.multiLabel).toMatchObject({ labelsAcross: 4 });
   });
 
-  it('keeps a legitimate zero in a multiLabel field', () => {
+  it('repairs a zero roll width instead of honouring it', () => {
+    // A 0 mm label cannot be printed. An earlier clamp preserved 0 as "a legitimate value",
+    // which let a corrupt file produce a 0x0 label — and a roll with `labelsAcross: 0` divides
+    // the record count by zero, so a batch asked for Infinity rows.
     store[KEYS.AUTOSAVE] = JSON.stringify({
       elements: [createText('A')],
       labelSize: { width: 40, height: 30 },
       multiLabel: { enabled: true, labelWidth: 0 },
     });
-    expect(loadAutosave()?.multiLabel?.labelWidth).toBe(0);
+    expect(loadAutosave()?.multiLabel?.labelWidth).toBe(5);
+  });
+
+  it('preserves a 5 mm roll label, the smallest the roll dialog accepts', () => {
+    // Rolls are cut into narrow strips, so their minimum is 5 mm rather than the 10 mm a whole
+    // label uses. Clamping a roll to the whole-label minimum rewrote a valid 5 mm roll to 10 mm
+    // on every reload.
+    store[KEYS.AUTOSAVE] = JSON.stringify({
+      elements: [createText('A')],
+      labelSize: { width: 40, height: 30 },
+      multiLabel: { enabled: true, labelWidth: 5, labelHeight: 5 },
+    });
+    expect(loadAutosave()?.multiLabel).toMatchObject({ labelWidth: 5, labelHeight: 5 });
+  });
+
+  it('keeps a zero gap, which is the roll minimum', () => {
+    store[KEYS.AUTOSAVE] = JSON.stringify({
+      elements: [createText('A')],
+      labelSize: { width: 40, height: 30 },
+      multiLabel: { enabled: true, gapMm: 0 },
+    });
+    expect(loadAutosave()?.multiLabel?.gapMm).toBe(0);
+  });
+
+  it('repairs a zero labelsAcross rather than dividing by it', () => {
+    store[KEYS.AUTOSAVE] = JSON.stringify({
+      elements: [createText('A')],
+      labelSize: { width: 40, height: 30 },
+      multiLabel: { enabled: true, labelsAcross: 0 },
+    });
+    expect(loadAutosave()?.multiLabel?.labelsAcross).toBe(1);
+  });
+
+  it('repairs a 0x0 label size', () => {
+    store[KEYS.AUTOSAVE] = JSON.stringify({
+      elements: [createText('A')],
+      labelSize: { width: 0, height: 0 },
+    });
+    expect(loadAutosave()?.labelSize).toMatchObject({ width: 10, height: 10 });
+  });
+
+  it('repairs out-of-range settings', () => {
+    store[KEYS.SETTINGS] = JSON.stringify({ copies: 0, density: 0, feed: 9999 });
+    const s = loadSettings();
+    expect(s.copies).toBe(1);
+    expect(s.density).toBe(1);
+    expect(s.feed).toBe(255);
   });
 
   it('still loads a well-formed autosave unchanged', () => {

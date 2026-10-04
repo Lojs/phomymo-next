@@ -3,7 +3,7 @@ set -e
 
 # The three paths below are overridable only so the script can be tested outside a container.
 CERT_DIR="${CERT_DIR:-/certs}"
-CONF_TEMPLATE="${CONF_TEMPLATE:-/etc/nginx/conf.d/default.conf.template}"
+CONF_TEMPLATE="${CONF_TEMPLATE:-/usr/share/phomymo/nginx.conf.template}"
 CONF_OUT="${CONF_OUT:-/etc/nginx/conf.d/default.conf}"
 
 CERT="$CERT_DIR/cert.pem"
@@ -38,7 +38,9 @@ generate_cert() {
   # An IP address must appear as an IP: entry in subjectAltName. Chromium ignores a DNS: entry for an
   # IP literal, so a certificate for 192.168.x.x written as DNS: reports a name mismatch on every
   # device — which reads as a hijack rather than as a stale file.
+  # A colon means an IPv6 literal, which is also an IP: entry (DNS:::1 is not a valid name).
   case "$DOMAIN" in
+    *:*)           SAN="IP:$DOMAIN" ;;
     *[!0-9.]*|"") SAN="DNS:$DOMAIN" ;;
     *)             SAN="IP:$DOMAIN" ;;
   esac

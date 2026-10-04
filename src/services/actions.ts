@@ -176,11 +176,12 @@ const fileBase = () => {
     .replace(/[\\/:*?"<>|\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]+/g, '_')
     // Leading dots would hide the file, and a trailing dot or space is dropped by Windows.
     .replace(/^[.\s]+/, '')
-    .replace(/[.\s]+$/, '')
-    // Cut by code point (not UTF-16 code unit) to avoid splitting surrogate pairs.
-    .slice(0, 120);
+    .replace(/[.\s]+$/, '');
+  // Cut by code point, not by UTF-16 code unit: String.slice(0, 120) can end in the first half of a
+  // surrogate pair (an emoji, some CJK) and leave a lone surrogate in the file name.
+  const cut = Array.from(name).slice(0, 120).join('');
   // Windows reserved names (CON, NUL, COM1, etc.) — prefix with underscore.
-  return (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(name) ? '_' : '') + name || 'label';
+  return (cut ? (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(cut) ? '_' : '') + cut : 'label');
 };
 
 export function exportJson() {

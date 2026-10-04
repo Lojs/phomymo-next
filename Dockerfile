@@ -20,7 +20,10 @@ FROM nginx:1.27-alpine
 RUN apk add --no-cache openssl gettext curl
 
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY docker/nginx.conf /etc/nginx/conf.d/default.conf.template
+# The template lives OUTSIDE /etc/nginx/conf.d on purpose. compose.yaml mounts a tmpfs over conf.d so
+# the rendered config can be written on a read-only root filesystem, and a tmpfs hides whatever the
+# image put in that directory — a template stored there is gone before the entrypoint can read it.
+COPY docker/nginx.conf /usr/share/phomymo/nginx.conf.template
 COPY docker/security-headers.conf /etc/nginx/snippets/phomymo-security-headers.conf
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

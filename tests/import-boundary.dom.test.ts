@@ -42,9 +42,24 @@ describe('multiLabel is validated, not assumed', () => {
     expect(() => parseDesignJSON(withExtra({ multiLabel: { [field]: value } }))).toThrow(new RegExp(field, 'i'));
   });
 
-  it('keeps a legitimate zero', () => {
+  it('repairs a zero roll width rather than importing it', () => {
     const json = JSON.stringify({ ...base, multiLabel: { enabled: true, labelWidth: 0 } });
-    expect(parseDesignJSON(json).design.multiLabel?.labelWidth).toBe(0);
+    expect(parseDesignJSON(json).design.multiLabel?.labelWidth).toBe(5);
+  });
+
+  it('imports a 5 mm roll label, the smallest the roll dialog accepts', () => {
+    const json = JSON.stringify({ ...base, multiLabel: { enabled: true, labelWidth: 5, labelHeight: 5 } });
+    expect(parseDesignJSON(json).design.multiLabel).toMatchObject({ labelWidth: 5, labelHeight: 5 });
+  });
+
+  it('keeps a zero gap, which is the roll minimum', () => {
+    const json = JSON.stringify({ ...base, multiLabel: { enabled: true, gapMm: 0 } });
+    expect(parseDesignJSON(json).design.multiLabel?.gapMm).toBe(0);
+  });
+
+  it('repairs a zero labelsAcross rather than dividing by it', () => {
+    const json = JSON.stringify({ ...base, multiLabel: { enabled: true, labelsAcross: 0 } });
+    expect(parseDesignJSON(json).design.multiLabel?.labelsAcross).toBe(1);
   });
 
   it('applies the default only when a field is genuinely absent', () => {
