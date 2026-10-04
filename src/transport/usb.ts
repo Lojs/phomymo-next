@@ -37,6 +37,8 @@ export class USBTransport {
   interfaceNumber: any;
   _endpointNumber: any;
   _usbDisconnectHandler: ((event: any) => void) | null = null;
+  /** The in-flight connect() attempt, so a concurrent caller joins it instead of starting a second. */
+  _connectPromise: Promise<boolean> | null = null;
 
   constructor() {
     this.device = null;
@@ -79,15 +81,19 @@ export class USBTransport {
       trace('Found authorized USB devices:', devices.length);
 
       for (const device of devices) {
-        // Check if this device matches our filters (vendor+product or printer class)
-        if (this._matchesFilters(device)) {
-          trace('Found authorized Phomemo device:', device.productName);
-          try {
-            await this.connectToDevice(device);
-            return true;
-          } catch (e) {
-            trace('Could not connect to', device.productName);
-          }
+        // Match on what is available WITHOUT opening: a USBDevice's `configuration` is null
+        // until this page calls open() + selectConfiguration(), so the { classCode: 7 } branch
+        // could never fire here and auto-reconnect silently did not work for any printer whose
+        // PID is not one of the two hardcoded pairs. getDevices() returns only devices this
+        // origin already has permission for, so trying them is safe; the class test happens
+        // inside connectToDevice(), after the device is open and configured.
+        if (!this._matchesVendorFilters(device)) continue;
+        trace('Found authorized candidate:', device.productName);
+        try {
+          await this.connectToDevice(device);
+          return true;
+        } catch (e) {
+          trace('Could not connect to', device.productName);
         }
       }
     } catch (e) {
@@ -95,6 +101,20 @@ export class USBTransport {
     }
 
     return false;
+  }
+
+  /**
+   * True when the device matches a vendor+product filter, i.e. a printer we know by identity.
+   *
+   * Only the VID/PID pairs are checked here, never the interface class: `configuration` is null
+   * on a device returned by getDevices() until it has been opened, so a classCode test would
+   * always fail here. The class check lives in connectToDevice(), once the device is open.
+   */
+  _matchesVendorFilters(device: any): boolean {
+    return USB_DEVICE_FILTERS.some(
+      (f) => f.vendorId !== undefined && f.productId !== undefined &&
+             device.vendorId === f.vendorId && device.productId === f.productId,
+    );
   }
 
   /**
@@ -122,7 +142,15 @@ export class USBTransport {
    * Connect to a Phomemo printer via USB
    * @param {Object} options - Connection options (unused for USB, for API consistency)
    */
-  async connect(_options: any = {}) {
+  async connect(options: any = {}): Promise<boolean> {
+    // Memoise the in-flight attempt, so a concurrent caller (the Connect button racing
+    // ensureConnected() from a Ctrl+P) joins it instead of opening a second chooser.
+    if (this._connectPromise) return this._connectPromise;
+    this._connectPromise = this._connect(options).finally(() => { this._connectPromise = null; });
+    return this._connectPromise;
+  }
+
+  private async _connect(_options: any = {}): Promise<boolean> {
     if (!USBTransport.isAvailable()) {
       throw new Error('WebUSB is not supported in this browser');
     }
@@ -152,72 +180,90 @@ export class USBTransport {
   /**
    * Connect to a specific device (used for initial connect and reconnect)
    */
-  async connectToDevice(device: any) {
+  async connectToDevice(device: any): Promise<boolean> {
     this.device = device;
 
-    // Open device
-    await this.device.open();
+    // One block owns everything after the device is taken on. Previously only two paths cleaned
+    // up, so a failure at open(), selectConfiguration() or claimInterface() propagated with the
+    // device STILL OPEN and this.device pointing at it while connected was false — the page kept
+    // the handle, and tryReconnect's catch only logged and moved on.
+    try {
+      await this.device.open();
 
-    // Select configuration
-    if (this.device.configuration === null) {
-      await this.device.selectConfiguration(1);
-    }
-
-    // Find and claim printer interface.
-    // Remember the interface object itself — indexing by interfaceNumber into the
-    // interfaces array is wrong on composite devices (number ≠ array position).
-    let printerIface: any = null;
-    for (const iface of this.device.configuration.interfaces) {
-      for (const alt of iface.alternates) {
-        if (alt.interfaceClass === 7) { // Printer class
-          printerIface = iface;
-          break;
-        }
+      // Select configuration
+      if (this.device.configuration === null) {
+        await this.device.selectConfiguration(1);
       }
-      if (printerIface) break;
-    }
 
-    if (!printerIface) {
-      await this.device.close();
-      this.device = null;
-      throw new Error('No printer-class interface found');
-    }
-
-    await this.device.claimInterface(printerIface.interfaceNumber);
-    trace(`Claimed interface ${printerIface.interfaceNumber}`);
-
-    // Find OUT endpoint on the same interface object
-    for (const alt of printerIface.alternates) {
-      for (const endpoint of alt.endpoints) {
-        if (endpoint.direction === 'out') {
-          this.endpointOut = endpoint.endpointNumber;
-          break;
+      // Find and claim printer interface.
+      // Remember the interface object itself — indexing by interfaceNumber into the
+      // interfaces array is wrong on composite devices (number ≠ array position).
+      let printerIface: any = null;
+      for (const iface of this.device.configuration.interfaces) {
+        for (const alt of iface.alternates) {
+          if (alt.interfaceClass === 7) { // Printer class
+            printerIface = iface;
+            break;
+          }
         }
+        if (printerIface) break;
       }
-      if (this.endpointOut) break;
-    }
+      if (!printerIface) throw new Error('No printer-class interface found');
 
-    if (!this.endpointOut) {
-      await this.device.close();
-      this.device = null;
-      throw new Error('No OUT endpoint found');
-    }
+      await this.device.claimInterface(printerIface.interfaceNumber);
+      trace(`Claimed interface ${printerIface.interfaceNumber}`);
 
-    // Listen for USB disconnect (cable pulled, device powered off)
-    if (typeof navigator !== 'undefined' && navigator.usb?.addEventListener) {
-      navigator.usb.addEventListener('disconnect', this._usbDisconnectHandler = (event: any) => {
-        if (event.device === this.device) {
+      // Find the OUT endpoint on the same interface object.
+      // An explicit `found` flag, not a falsy test: USB endpoint number 0 is legal, and
+      // `if (!this.endpointOut)` reported a printer whose data endpoint is 0 as having none.
+      let foundOut = false;
+      for (const alt of printerIface.alternates) {
+        for (const endpoint of alt.endpoints) {
+          if (endpoint.direction === 'out') {
+            this.endpointOut = endpoint.endpointNumber;
+            foundOut = true;
+            break;
+          }
+        }
+        if (foundOut) break;
+      }
+      if (!foundOut) throw new Error('No OUT endpoint found');
+
+      // Watch for the cable being pulled. Detach any previous handler first: the field was
+      // overwritten on each connect, so every earlier closure stayed attached to navigator.usb
+      // for the life of the page, and after five connect/unplug cycles five live handlers ran on
+      // every disconnect event.
+      if (typeof navigator !== 'undefined' && navigator.usb?.removeEventListener && this._usbDisconnectHandler) {
+        navigator.usb.removeEventListener('disconnect', this._usbDisconnectHandler);
+        this._usbDisconnectHandler = null;
+      }
+      if (typeof navigator !== 'undefined' && navigator.usb?.addEventListener) {
+        this._usbDisconnectHandler = (event: any) => {
+          if (event.device !== this.device) return;
           trace('USB device disconnected');
           this.connected = false;
           this.device = null;
           this.endpointOut = null;
+          // Detach from inside the handler: it will never be needed again for this device.
+          if (typeof navigator !== 'undefined' && navigator.usb?.removeEventListener) {
+            navigator.usb.removeEventListener('disconnect', this._usbDisconnectHandler!);
+          }
+          this._usbDisconnectHandler = null;
           if (this.onDisconnect) this.onDisconnect();
-        }
-      });
-    }
+        };
+        navigator.usb.addEventListener('disconnect', this._usbDisconnectHandler);
+      }
 
-    this.connected = true;
-    trace('USB connected to', this.device.productName);
+      this.connected = true;
+      trace('USB connected to', this.device.productName);
+      return true;
+    } catch (e) {
+      try { await device.close(); } catch { /* already gone */ }
+      this.device = null;
+      this.connected = false;
+      this.endpointOut = null;
+      throw e;
+    }
   }
 
   /**
@@ -244,25 +290,35 @@ export class USBTransport {
    * Send data to the printer
    */
   async send(data: any) {
-    if (!this.connected || !this.device || !this.endpointOut) {
+    // `this.endpointOut === null` rather than a falsy test: endpoint number 0 is legal.
+    if (!this.connected || !this.device || this.endpointOut === null || this.endpointOut === undefined) {
       throw new Error('Not connected');
     }
 
     const buffer = data instanceof Uint8Array ? data : new Uint8Array(data);
-    const result = await this.device.transferOut(this.endpointOut, buffer);
 
-    if (result.status !== 'ok' || result.bytesWritten !== buffer.length) {
-      // On 'stall', try clearing the endpoint and retrying once before giving up.
+    // A bulk OUT endpoint is PERMITTED to accept fewer bytes than offered while reporting
+    // status 'ok'. Treating that as a hard failure threw away the unwritten tail of a raster
+    // chunk, and runOps has no retry — so the label lost bytes silently. Loop over the
+    // remainder instead; a transfer that writes nothing is a real failure and is bounded.
+    let written = 0;
+    for (let attempt = 0; written < buffer.length && attempt < 8; attempt++) {
+      const result = await this.device.transferOut(this.endpointOut, buffer.subarray(written));
+
       if (result.status === 'stall') {
-        try {
-          await this.device.clearHalt('out', this.endpointOut);
-          const retry = await this.device.transferOut(this.endpointOut, buffer);
-          if (retry.status === 'ok' && retry.bytesWritten === buffer.length) return;
-        } catch {
-          // fall through to throw
-        }
+        // Clear the endpoint and retry the same offset once per pass.
+        try { await this.device.clearHalt('out', this.endpointOut); } catch { /* fall through */ }
+        continue;
       }
-      throw new Error(`USB transfer failed: status=${result.status}, bytesWritten=${result.bytesWritten}/${buffer.length}`);
+      if (result.status !== 'ok') {
+        throw new Error(`USB transfer failed: status=${result.status}, written=${written}/${buffer.length}`);
+      }
+      if (!result.bytesWritten) break;   // no progress; the loop would spin
+      written += result.bytesWritten;
+    }
+
+    if (written < buffer.length) {
+      throw new Error(`USB transfer incomplete: ${written}/${buffer.length} bytes written`);
     }
   }
 

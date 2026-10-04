@@ -71,14 +71,27 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 function waitForDialogToClose(name: NonNullable<ReturnType<typeof st>['dialog']>): Promise<void> {
   if (st().dialog !== name) return Promise.resolve();
   return new Promise((resolve) => {
-    const unsub = useStore.subscribe((s: { dialog: string | null }) => {
-      if (s.dialog !== name) {
-        unsub();
-        resolve();
-      }
+    // Bounded, so the print slot can never be held forever. The subscription alone resolved only
+    // on a store transition away from `name`; if the dialog were torn down without one — a
+    // component unmount, a test harness reset — the promise never settled, printCurrent's `finally`
+    // never ran, `printing` stayed true and isPrinting() returned true for the rest of the session.
+    // The user saw a Print button that did nothing until they reloaded.
+    const timer = setTimeout(finish, DIALOG_WAIT_TIMEOUT_MS);
+    let unsub: (() => void) | null = null;
+    function finish() {
+      clearTimeout(timer);
+      unsub?.();
+      unsub = null;
+      resolve();
+    }
+    unsub = useStore.subscribe((s: { dialog: string | null }) => {
+      if (s.dialog !== name) finish();
     });
   });
 }
+
+/** How long the model picker may stay open before the print proceeds with what is configured. */
+const DIALOG_WAIT_TIMEOUT_MS = 60_000;
 
 export const secureContextOk = () => window.isSecureContext;
 export const bluetoothAvailable = () => BLETransport.isAvailable();
@@ -157,6 +170,12 @@ export function friendlyConnectError(e: unknown): string {
 }
 
 export async function connectPrinter(type: 'ble' | 'usb', showAllDevices = false): Promise<boolean> {
+  // A connect is already running (picker open, or GATT being established). The transports now
+  // memoise their in-flight attempt, so a second call would JOIN it — but the two callers would
+  // then race to write conn state, and the loser's failure could land last and show a working
+  // printer as failed. Refuse instead, and let the running attempt report its own outcome.
+  if (st().conn.busy) return false;
+
   if (!secureContextOk()) {
     st().setConn({ status: 'failed', error: tr('needsHttps') });
     st().toast(tr('needsHttps'), 'error');

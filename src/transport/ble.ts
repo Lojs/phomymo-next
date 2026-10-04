@@ -48,6 +48,8 @@ export class BLETransport {
   _deviceDisconnectHandler: (() => void) | null = null;
   /** Bumped on every fresh attach; a handler from an older generation is ignored. */
   _generation = 0;
+  /** The in-flight connect() attempt, so a concurrent caller joins it instead of starting a second. */
+  _connectPromise: Promise<boolean> | null = null;
   printerInfo: Record<string, unknown>;
   _queryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -100,7 +102,19 @@ export class BLETransport {
    * @param {Object} options - Connection options
    * @param {boolean} options.showAllDevices - If true, show all Bluetooth devices instead of filtering
    */
-  async connect({ showAllDevices = false }: { showAllDevices?: boolean } = {}) {
+  async connect(options: { showAllDevices?: boolean } = {}): Promise<boolean> {
+    // Memoize the in-flight attempt. connect() is reachable from the Connect button AND from
+    // ensureConnected() (which printCurrent() calls), and the Print button is not disabled on
+    // conn.busy — so Ctrl+P while the picker was open started a SECOND connect on this singleton.
+    // The second requestDevice() rejects with InvalidStateError, which used to be misread as "the
+    // name filter failed" and issue a THIRD request; both calls then assigned this.device while
+    // connectGATT re-read it, so the first call could open GATT on the device the second picked.
+    if (this._connectPromise) return this._connectPromise;
+    this._connectPromise = this._connect(options).finally(() => { this._connectPromise = null; });
+    return this._connectPromise;
+  }
+
+  private async _connect({ showAllDevices = false }: { showAllDevices?: boolean } = {}): Promise<boolean> {
     if (!BLETransport.isAvailable()) {
       throw new Error('Bluetooth not supported');
     }

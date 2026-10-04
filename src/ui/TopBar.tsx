@@ -81,7 +81,7 @@ function ConnectMenu() {
 
 export function TopBar() {
   const t = useT();
-  const { designName, dirty, lang, past, future, print, previewOnPaper, copies } = useStore(useShallow((s) => ({ designName: s.designName, dirty: s.dirty, lang: s.lang, past: s.past.length, future: s.future.length, print: s.print, previewOnPaper: s.previewOnPaper, copies: s.settings.copies })));
+  const { designName, dirty, lang, past, future, print, previewOnPaper, copies, conn } = useStore(useShallow((s) => ({ designName: s.designName, dirty: s.dirty, lang: s.lang, past: s.past.length, future: s.future.length, print: s.print, previewOnPaper: s.previewOnPaper, copies: s.settings.copies, conn: s.conn })));
   const st = useStore.getState;
 
   return (
@@ -114,7 +114,7 @@ export function TopBar() {
         <span aria-hidden="true">×</span>
         <NumberInput value={copies} min={LIMITS.copies.min} max={LIMITS.copies.max} onChange={(v) => st().updateSettings({ copies: Math.round(v) })} width={46} title={t('copies')} />
       </span>
-      <Button variant="primary" icon="print" disabled={!!print?.active} onClick={() => void printCurrent()}>
+      <Button variant="primary" icon="print" disabled={!!print?.active || conn.busy} onClick={() => void printCurrent()}>
         <span className="btn-text">{print?.active ? t('printing') : t('print')}</span>
       </Button>
     </header>

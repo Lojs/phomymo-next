@@ -49,6 +49,30 @@ function fakeDevice(name: string) {
   return device;
 }
 
+describe('F-06: a concurrent BLE connect joins the first attempt', () => {
+  it('a second call joins the running one instead of opening a second picker', async () => {
+    const a = fakeDevice('M-A');
+    const t = new BLETransport();
+    t.delay = async () => {};
+    let pickers = 0;
+    // Each pick blocks until we release it, so both calls would overlap without the guard.
+    let release!: (d: any) => void;
+    const picked = new Promise<any>((r) => { release = r; });
+    Object.defineProperty(globalThis, 'navigator', {
+      value: { bluetooth: { requestDevice: async () => { pickers++; return picked; } } },
+      configurable: true, writable: true,
+    });
+
+    const first = t.connect();
+    const second = t.connect();
+    release(a);
+    await Promise.all([first, second]);
+
+    expect(pickers).toBe(1);
+    expect(t.device).toBe(a);
+  });
+});
+
 describe('F-01: a stale disconnect handler cannot tear down a newer connection', () => {
   it('a handler from a previous device is ignored after a new one attaches', async () => {
     const t = new BLETransport();
