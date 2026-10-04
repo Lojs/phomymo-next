@@ -142,9 +142,25 @@ export function alignmentOf(cfg: ResolvedConfig): Alignment {
   return cfg.definition?.alignment || 'center';
 }
 
+/**
+ * The printable width in millimetres.
+ *
+ * widthBytes is a count of 8-dot bytes, so its length depends on the head's DPI: 48 bytes is 48 mm
+ * on a 203 DPI printer but only 32 mm on a 300 DPI one. Printing the byte count with an "mm"
+ * suffix was therefore right for every 203 DPI entry by coincidence and wrong for all of them
+ * otherwise — the M02 Pro read "78mm" when the paper is 53 mm.
+ */
+export function paperWidthMm(cfg: ResolvedConfig): number | null {
+  const bytes = cfg.width;
+  if (bytes === null) return null;
+  const dpi = cfg.dpi || 203;
+  return Math.round((bytes * 8 * 25.4) / dpi);
+}
+
 export function describe(reg: PrinterRegistry, deviceName: string, model = 'auto'): string {
   const cfg = reg.resolve(deviceName, model);
   const def = cfg.definition;
-  if (def) return def.name + (def.widthBytes ? ` (${def.widthBytes}mm)` : '');
-  return `M-series (${reg.widthBytes(deviceName, model)}mm)`;
+  const mm = paperWidthMm(cfg);
+  if (def) return def.name + (mm !== null ? ` (${mm}mm)` : '');
+  return `M-series (${mm ?? '—'})`;
 }

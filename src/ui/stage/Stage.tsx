@@ -179,7 +179,11 @@ export function Stage() {
 
   // ---- pointer handling ----------------------------------------------------------------------------
   const onPointerDown = (e: React.PointerEvent) => {
-    if (editingId) return;
+    // Only refuse while an editor is genuinely open. If the element being edited was removed —
+    // by undo, by Delete, or by loading another design — `editing` below is null and the
+    // textarea has unmounted, but editingId stayed set and this guard rejected every pointer
+    // event for the rest of the session: a live canvas that took no input at all.
+    if (editingId && editing) return;
     const isTouch = e.pointerType === 'touch';
     setTouch(isTouch);
     overlay.current!.setPointerCapture(e.pointerId);

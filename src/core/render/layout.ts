@@ -99,9 +99,17 @@ export function multiLayout(cfg: Pick<MultiLabelConfig, 'labelWidth' | 'labelHei
   const lw = Math.round(cfg.labelWidth * PX_PER_MM);
   const lh = Math.round(cfg.labelHeight * PX_PER_MM);
   const gap = Math.round(cfg.gapMm * PX_PER_MM);
-  const zones = Array.from({ length: cfg.labelsAcross }, (_, i) => ({ x: i * (lw + gap), y: 0, width: lw, height: lh }));
-  return { width: lw * cfg.labelsAcross + gap * (cfg.labelsAcross - 1), height: lh, round: false, zones, labelWidth: lw, labelHeight: lh };
+  // Clamp the zone count to something the browser can lay out before allocating. A custom or
+  // damaged value reached this function directly (the multi-label dialog clamps, but the store
+  // and the tests do not), and Array.from({ length: 1e9 }) would try to build a billion zone
+  // objects — the tab dies before any error could be shown.
+  const across = Math.max(1, Math.min(MAX_ZONES, Math.floor(cfg.labelsAcross) || 1));
+  const zones = Array.from({ length: across }, (_, i) => ({ x: i * (lw + gap), y: 0, width: lw, height: lh }));
+  return { width: lw * across + gap * (across - 1), height: lh, round: false, zones, labelWidth: lw, labelHeight: lh };
 }
+
+/** The most zones a roll may be cut into. Matches LIMITS.multi.maxAcross. */
+const MAX_ZONES = 8;
 
 export function zoneAt(layout: LabelLayout, x: number, y: number): number | null {
   if (!layout.zones) return 0;

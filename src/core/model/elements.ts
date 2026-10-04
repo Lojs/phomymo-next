@@ -208,9 +208,19 @@ export function boundsOfMany(els: LabelElement[]): Bounds | null {
 }
 
 export function hitTest(px: number, py: number, el: LabelElement): boolean {
-  const c = { x: el.x + el.width / 2, y: el.y + el.height / 2 };
+  // Take the absolute size. A negative width (which a corrupt import could carry, and which the
+  // hit box then reported as empty — the element became unclickable, so it could be neither
+  // selected nor deleted, with no way out but reloading) or a NaN coordinate makes every
+  // comparison false and the element unselectable for the same reason. Using the magnitude keeps
+  // such an element selectable so the user can still act on it.
+  const w = Math.abs(el.width) || 1;
+  const h = Math.abs(el.height) || 1;
+  const x0 = Math.min(el.x, el.x + el.width);
+  const y0 = Math.min(el.y, el.y + el.height);
+  const c = { x: x0 + w / 2, y: y0 + h / 2 };
   const l = rotatePoint({ x: px, y: py }, c, -(el.rotation || 0));
-  return l.x >= el.x && l.x <= el.x + el.width && l.y >= el.y && l.y <= el.y + el.height;
+  if (!Number.isFinite(l.x) || !Number.isFinite(l.y)) return false;
+  return l.x >= x0 && l.x <= x0 + w && l.y >= y0 && l.y <= y0 + h;
 }
 
 export function topElementAt(px: number, py: number, els: LabelElement[]): LabelElement | null {

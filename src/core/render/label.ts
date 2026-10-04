@@ -33,11 +33,37 @@ export function paintLabel(ctx: CanvasRenderingContext2D, elements: LabelElement
   ctx.restore();
 }
 
+/**
+ * Refuse a canvas the browser cannot allocate, before it is allocated.
+ *
+ * Storage clamps imported and autosaved sizes, but a custom label size, a custom printer
+ * definition's DPI, or a multi-label roll set in the same session reaches here directly. A canvas
+ * of width x height plus the getImageData copy is 4 bytes per pixel, and the 300 DPI path builds
+ * several such canvases, so an extreme value kills the tab rather than failing visibly — and a
+ * canvas this size could not have printed anything useful anyway.
+ */
+export const MAX_CANVAS_SIDE = 8000;
+export const MAX_CANVAS_PIXELS = 16_000_000;   // 64 MB of RGBA per buffer
+
+export function assertRenderable(width: number, height: number): void {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+    throw new RangeError(`Label size is not a usable pixel size: ${width}x${height}`);
+  }
+  if (width > MAX_CANVAS_SIDE || height > MAX_CANVAS_SIDE) {
+    throw new RangeError(`Label is ${width}x${height}px, larger than the ${MAX_CANVAS_SIDE}px limit`);
+  }
+  if (width * height > MAX_CANVAS_PIXELS) {
+    throw new RangeError(`Label is ${width * height} pixels, above the ${MAX_CANVAS_PIXELS} limit`);
+  }
+}
+
 export function renderPixels(elements: LabelElement[], layout: LabelLayout): PixelBuffer {
+  assertRenderable(layout.width, layout.height);
   const cv = document.createElement('canvas');
   cv.width = layout.width;
   cv.height = layout.height;
-  const ctx = cv.getContext('2d', { willReadFrequently: true })!;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('Could not get a 2D canvas context');
   paintLabel(ctx, elements, layout);
   return { pixels: ctx.getImageData(0, 0, layout.width, layout.height).data, width: layout.width, height: layout.height };
 }
@@ -68,9 +94,13 @@ export function buildRaster(elements: LabelElement[], layout: LabelLayout, targe
 
   if (target.dpi > 203) {
     // 300 DPI heads: scale the 203-DPI artwork up with smoothing, then left-align.
-    const scale = target.dpi / 203;
+    // The head's DPI comes from a printer definition, including a user's own, so an absurd value
+    // would scale the artwork to whatever it implied and allocate a canvas for it. Clamped: the
+    // upscale is only ever meant to go 203 -> 300.
+    const scale = Math.min(3, target.dpi / 203);
     const sw = Math.round(width * scale);
     const sh = Math.round(height * scale);
+    assertRenderable(sw, sh);
     const src = document.createElement('canvas');
     src.width = width;
     src.height = height;

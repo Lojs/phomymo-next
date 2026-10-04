@@ -41,6 +41,20 @@ jobs:
       - name: تثبيت nginx لاختبار الإعدادات
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends nginx-light
 
+      # The About dialog shows the version baked in from package.json (vite.config.ts), so a tag
+      # whose number disagrees with package.json ships a UI that misreports what it is. Tagging
+      # is a manual step, which is exactly why it needs a gate.
+      - name: الوسم يطابق إصدار package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          want="v$(node -p "require('./package.json').version")"
+          got="${{ github.ref_name }}"
+          if [ "$want" != "$got" ]; then
+            echo "::error::Tag $got does not match package.json version ($want)"
+            exit 1
+          fi
+          echo "Tag $got matches package.json."
+
       - name: التحقق من الأنواع
         run: npm run typecheck
 
