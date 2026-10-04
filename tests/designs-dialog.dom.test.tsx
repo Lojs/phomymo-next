@@ -6,7 +6,7 @@
  * these tests cover the confirmations and the storage round-trip, not just the markup.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
 import { DesignsDialog, Toasts } from '../src/ui/Dialogs';
 import { useStore } from '../src/state/store';
 import { createText } from '../src/core/model/elements';
@@ -17,7 +17,10 @@ beforeEach(() => {
   vi.restoreAllMocks();
   localStorage.clear();
   useStore.getState().newDesign();
-  useStore.setState({ lang: 'en', dialog: 'designs', designName: null, past: [], future: [] });
+  // `toasts` lives in the module-level store, which every test in this file shares. Clearing
+  // localStorage and resetting the design keys does NOT clear it, so an earlier test's success
+  // toast was still queued when a later test asserted on `toasts.at(-1)`.
+  useStore.setState({ lang: 'en', dialog: 'designs', designName: null, past: [], future: [], toasts: [] });
 });
 
 /** Seed a saved design straight into storage. */
@@ -180,10 +183,16 @@ describe('renaming', () => {
     seed('A');
     seed('B');
     render(<DesignsDialog />);
+    // Target the row BY NAME, never by index. listDesigns() sorts newest-first, so [0] is only
+    // 'A' while both saveDesign() calls land in the same millisecond. Under the parallel 39-file
+    // suite they can straddle a millisecond boundary, B becomes the newer design, [0] is B's
+    // button — and since the prompt returns 'B', Dialogs' `n !== d.name` guard short-circuits,
+    // so no rename is attempted and no error toast is ever produced.
+    const rowA = screen.getByText('A').closest('li')!;
     vi.spyOn(window, 'prompt').mockReturnValue('B');
-    fireEvent.click(screen.getAllByLabelText('Rename')[0]);
-    expect(useStore.getState().toasts.at(-1)!.kind).toBe('error');
-    expect(storage.listDesigns().length).toBe(2);
+    fireEvent.click(within(rowA).getByLabelText('Rename'));
+    expect(useStore.getState().toasts.some((t) => t.kind === 'error')).toBe(true);
+    expect(storage.listDesigns().map((d) => d.name).sort()).toEqual(['A', 'B']);
   });
 });
 

@@ -43,7 +43,11 @@ export class BLETransport {
   /** The part of a `characteristicvaluechanged` event the transport reads. */
   _notificationHandler: ((event: Event) => void) | null = null;
   /** Pending waitForResponse() resolvers, so a disconnect can resolve them all with null. */
-  _pendingWaiters: Set<(value: unknown) => void> = new Set();
+  _pendingWaiters: Set<{ resolve: (v: unknown) => void; cleanup: () => void }> = new Set();
+  /** The 'gattserverdisconnected' handler currently attached to `this.device`, so it can be removed. */
+  _deviceDisconnectHandler: (() => void) | null = null;
+  /** Bumped on every fresh attach; a handler from an older generation is ignored. */
+  _generation = 0;
   printerInfo: Record<string, unknown>;
   _queryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -267,9 +271,21 @@ export class BLETransport {
    * Connect to GATT server and get characteristics
    */
   async connectGATT() {
-    // Setup disconnect handler (only once per device)
+    // Setup disconnect handler.
+    //
+    // The handler is tracked so it can be DETACHED, and stamped with a generation counter so a
+    // handler left over from an earlier device can never tear down a newer, healthy connection.
+    // Per the Web Bluetooth spec a BluetoothDevice lives for the lifetime of the global, so an
+    // attached listener is retained for the whole session, not merely until GC — with two printers
+    // A and B, connect A, pick B, and every later flap of A fired this handler and nulled B's
+    // writeChar while `this.device` was B. That made a working printer report "Not connected" until
+    // the user reconnected, silently and repeatedly.
     if (!this.device._hasDisconnectHandler) {
-      this.device.addEventListener('gattserverdisconnected', () => {
+      const device = this.device;
+      this._generation += 1;
+      const gen = this._generation;
+      const handler = () => {
+        if (gen !== this._generation) return;   // stale handler from an older device
         trace('Disconnected');
         this.connected = false;
         this.server = null;
@@ -281,12 +297,22 @@ export class BLETransport {
         }
         this.notifyChar = null;
         this._notificationHandler = null;
-        // Resolve any pending waitForResponse() calls so they don't hang forever.
-        for (const resolve of this._pendingWaiters) resolve(null);
+        // Resolve any pending waitForResponse() calls so they don't hang forever. Each waiter's own
+        // cleanup runs too, so its timer and listener are released rather than left armed until
+        // the timeout — this is the one place add/removeEventListener were not paired.
+        for (const w of [...this._pendingWaiters]) { w.cleanup(); w.resolve(null); }
         this._pendingWaiters.clear();
+        // Detach from the device that disconnected, so it cannot fire again.
+        if (device && this._deviceDisconnectHandler) {
+          device.removeEventListener('gattserverdisconnected', this._deviceDisconnectHandler);
+          this._deviceDisconnectHandler = null;
+          delete device._hasDisconnectHandler;
+        }
         if (this.onDisconnect) this.onDisconnect();
-      });
-      this.device._hasDisconnectHandler = true;
+      };
+      this._deviceDisconnectHandler = handler;
+      device.addEventListener('gattserverdisconnected', handler);
+      device._hasDisconnectHandler = true;
     }
 
     // Reset state before attempting connection (important for retries)
@@ -299,66 +325,91 @@ export class BLETransport {
     trace('Connecting GATT...');
     this.server = await this.device.gatt.connect();
 
-    // Small delay after GATT connect before service discovery
-    // This helps with timing issues on some devices
-    await this.delay(100);
-
-    // Try to find a working service (some printers use different UUIDs)
-    trace('Getting service...');
-    const servicesToTry = BLE.ALT_SERVICE_UUIDS || [BLE.SERVICE_UUID];
-    let lastError = null;
-
-    for (const serviceUuid of servicesToTry) {
-      try {
-        trace(`Trying service UUID: ${typeof serviceUuid === 'number' ? '0x' + serviceUuid.toString(16) : serviceUuid}`);
-        this.service = await this.server.getPrimaryService(serviceUuid);
-        trace('Service found!');
-        break;
-      } catch (e) {
-        lastError = e;
-        trace(`Service ${typeof serviceUuid === 'number' ? '0x' + serviceUuid.toString(16) : serviceUuid} not found`);
-      }
-    }
-
-    if (!this.service) {
-      throw new Error(`No compatible Bluetooth service found. Last error: ${lastError?.message}`);
-    }
-
-    trace('Getting characteristics...');
-    this.writeChar = await this.service.getCharacteristic(BLE.WRITE_CHAR_UUID);
-
-    // Log characteristic properties for debugging
-    const props = this.writeChar.properties;
-    trace('Write characteristic properties:', {
-      write: props.write,
-      writeWithoutResponse: props.writeWithoutResponse,
-      read: props.read,
-      notify: props.notify,
-    });
-
-    // Determine if we need to use writeValue instead of writeValueWithoutResponse
-    this._useWriteWithResponse = !props.writeWithoutResponse && props.write;
-    if (this._useWriteWithResponse) {
-      trace('Device requires writeValue (with response)');
-    }
-
+    // From here the radio link is UP, so every failure below must give it back. Previously a
+    // missing service or an absent write characteristic threw with the GATT connection still
+    // open: retryWithBackoff then re-ran connectGATT, whose gatt.connect() resolves immediately
+    // on an already-connected device, so both attempts spun on the same dead link. On the silent
+    // reconnect path this.device was then set to null and nothing held a reference — the printer
+    // stayed connected to this page for the rest of the session, holding the radio, with no way
+    // for the user to release it short of a reload.
     try {
-      this.notifyChar = await this.service.getCharacteristic(BLE.NOTIFY_CHAR_UUID);
-      await this.notifyChar.startNotifications();
+      // Small delay after GATT connect before service discovery
+      // This helps with timing issues on some devices
+      await this.delay(100);
 
-      // Set up notification handler (store reference for cleanup)
-      this._notificationHandler = (event: any) => {
-        this.handleNotification(event);
-      };
-      this.notifyChar.addEventListener('characteristicvaluechanged', this._notificationHandler);
+      // Try to find a working service (some printers use different UUIDs)
+      trace('Getting service...');
+      const servicesToTry = BLE.ALT_SERVICE_UUIDS || [BLE.SERVICE_UUID];
+      let lastError = null;
 
-      trace('Notifications enabled');
+      for (const serviceUuid of servicesToTry) {
+        try {
+          trace(`Trying service UUID: ${typeof serviceUuid === 'number' ? '0x' + serviceUuid.toString(16) : serviceUuid}`);
+          this.service = await this.server.getPrimaryService(serviceUuid);
+          trace('Service found!');
+          break;
+        } catch (e) {
+          lastError = e;
+          trace(`Service ${typeof serviceUuid === 'number' ? '0x' + serviceUuid.toString(16) : serviceUuid} not found`);
+        }
+      }
+
+      if (!this.service) {
+        throw new Error(`No compatible Bluetooth service found. Last error: ${lastError?.message}`);
+      }
+
+      trace('Getting characteristics...');
+      this.writeChar = await this.service.getCharacteristic(BLE.WRITE_CHAR_UUID);
+
+      // Log characteristic properties for debugging
+      const props = this.writeChar.properties;
+      trace('Write characteristic properties:', {
+        write: props.write,
+        writeWithoutResponse: props.writeWithoutResponse,
+        read: props.read,
+        notify: props.notify,
+      });
+
+      // Determine if we need to use writeValue instead of writeValueWithoutResponse
+      this._useWriteWithResponse = !props.writeWithoutResponse && props.write;
+      if (this._useWriteWithResponse) {
+        trace('Device requires writeValue (with response)');
+      }
+
+      try {
+        this.notifyChar = await this.service.getCharacteristic(BLE.NOTIFY_CHAR_UUID);
+        await this.notifyChar.startNotifications();
+
+        // Set up notification handler (store reference for cleanup)
+        this._notificationHandler = (event: any) => {
+          this.handleNotification(event);
+        };
+        this.notifyChar.addEventListener('characteristicvaluechanged', this._notificationHandler);
+
+        trace('Notifications enabled');
+      } catch (e) {
+        console.warn('Notifications not available:', e.message);
+      }
+
+      // The device may have dropped between startNotifications() and here, in which case the
+      // disconnect handler has already nulled writeChar/notifyChar. Stamping connected = true
+      // onto a dead link leaves the transport in an inconsistent half-open state.
+      if (!this.device?.gatt?.connected) {
+        throw new Error('GATT connection dropped during setup');
+      }
+      this.connected = true;
+      trace('Connected to', this.device.name);
     } catch (e) {
-      console.warn('Notifications not available:', e.message);
+      // Give the radio link back before propagating. See the comment at the gatt.connect() call.
+      try { this.device?.gatt?.disconnect(); } catch { /* already gone */ }
+      this.connected = false;
+      this.server = null;
+      this.service = null;
+      this.writeChar = null;
+      this.notifyChar = null;
+      this._notificationHandler = null;
+      throw e;
     }
-
-    this.connected = true;
-    trace('Connected to', this.device.name);
   }
 
   /**
@@ -379,6 +430,16 @@ export class BLETransport {
     if (this.device && this.device.gatt?.connected) {
       this.device.gatt.disconnect();
     }
+    // Detach the 'gattserverdisconnected' handler too. Without this the listener survives on the
+    // BluetoothDevice — which the spec keeps alive for the lifetime of the global — and a later
+    // flap of that device fires a handler that nulls `this.server`/`writeChar` for whatever
+    // printer is connected NOW. Bumping the generation makes any already-queued handler a no-op.
+    if (this.device && this._deviceDisconnectHandler) {
+      this.device.removeEventListener('gattserverdisconnected', this._deviceDisconnectHandler);
+      delete this.device._hasDisconnectHandler;
+    }
+    this._deviceDisconnectHandler = null;
+    this._generation += 1;
     this.connected = false;
     this.device = null;
     this.server = null;
@@ -386,6 +447,9 @@ export class BLETransport {
     this.writeChar = null;
     this.notifyChar = null;
     this._notificationHandler = null;
+    // Release any waiter still armed: its timer and listener go with it.
+    for (const w of [...this._pendingWaiters]) { w.cleanup(); w.resolve(null); }
+    this._pendingWaiters.clear();
     this.resetPrinterInfo();
   }
 
@@ -446,13 +510,15 @@ export class BLETransport {
     const ch = this.notifyChar;
 
     return new Promise((resolve: any) => {
-      this._pendingWaiters.add(resolve);
+      const waiter: { resolve: (v: unknown) => void; cleanup: () => void } = { resolve, cleanup: () => {} };
+      this._pendingWaiters.add(waiter);
 
       const cleanup = () => {
-        this._pendingWaiters.delete(resolve);
+        this._pendingWaiters.delete(waiter);
         clearTimeout(timer);
         ch.removeEventListener('characteristicvaluechanged', handler);
       };
+      waiter.cleanup = cleanup;
 
       const timer = setTimeout(() => {
         cleanup();

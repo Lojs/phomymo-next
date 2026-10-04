@@ -286,7 +286,12 @@ export function parseCSV(csv: string): CsvResult {
       errors.push(`Row ${line}: Expected ${headers.length} columns, got ${values.length}`);
       continue;
     }
-    const rec: TemplateRecord = {};
+    // A prototype-free record, not a plain `{}`. Assigning a STRING to `__proto__` on a plain
+    // object invokes the inherited setter, which is a silent no-op for non-object values — so a
+    // column literally named "__proto__" lost its data with no error and no warning, while the
+    // column count still reported 3. This file already gets it right in subst() (hasOwnProperty
+    // check); this was the one place that opted out.
+    const rec = Object.create(null) as TemplateRecord;
     headers.forEach((h, j) => (rec[h] = values[j]));
     records.push(rec);
   }

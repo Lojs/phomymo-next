@@ -155,6 +155,33 @@ describe('empty input', () => {
   });
 });
 
+describe('a column named __proto__', () => {
+  // `rec[h] = value` on a plain `{}` invokes the inherited __proto__ setter for a STRING, which is
+  // a silent no-op — so the cell's data vanished with no error and the column count still reported
+  // 3. Not pollution (a string cannot pollute), but silent data loss in one exotic column name.
+  const CSV = '__proto__,constructor,normal\nv1,v2,v3';
+
+  it('keeps the header and the value', () => {
+    const r = parseCSV(CSV);
+    expect(r.headers).toEqual(['__proto__', 'constructor', 'normal']);
+    expect(r.errors).toEqual([]);
+    expect(Object.keys(r.records[0])).toEqual(['__proto__', 'constructor', 'normal']);
+    expect(r.records[0]['__proto__']).toBe('v1');
+    expect(r.records[0]['constructor']).toBe('v2');
+    expect(r.records[0]['normal']).toBe('v3');
+  });
+
+  it('does not pollute anything', () => {
+    parseCSV(CSV);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it('a field reference to it substitutes', () => {
+    const r = parseCSV(CSV);
+    expect(Object.prototype.hasOwnProperty.call(r.records[0], '__proto__')).toBe(true);
+  });
+});
+
 describe('the date format string', () => {
   // The old implementation ran a chain of global replacements, so every literal D, a, s, h and m in
   // the format was eaten. A format like "DD days" lost the word "days".

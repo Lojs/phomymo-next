@@ -123,17 +123,28 @@ function packBits(
   let offset = 0;
   if (alignment === 'center') offset = Math.floor((outputWidthBytes - rowBytes) / 2);
   else if (alignment === 'right') offset = outputWidthBytes - rowBytes;
+  // A label wider than the printer's own print width made this offset NEGATIVE, and the leading
+  // columns were then computed and thrown away by the bounds check below — so what printed was
+  // the label's RIGHT edge instead of its left. Clamp to a usable range: the row starts inside the
+  // output row, and never past its end.
+  offset = Math.max(0, Math.min(offset, Math.max(0, outputWidthBytes - rowBytes)));
 
   for (let y = 0; y < height; y++) {
+    const rowStart = y * outputWidthBytes;
+    const rowEnd = rowStart + outputWidthBytes;
     for (let bx = 0; bx < rowBytes; bx++) {
+      // Stop at this row's own end. Previously only the whole-buffer bound was checked, so once
+      // `bx` passed outputWidthBytes the index spilled into the NEXT row and overwrote it — which
+      // is why a too-wide label printed blank under the 'left' alignment (the 300-DPI default).
+      const pos = rowStart + offset + bx;
+      if (pos >= rowEnd) break;
       let byte = 0;
       for (let bit = 0; bit < 8; bit++) {
         const x = bx * 8 + bit;
         if (x >= width) continue;
         if (isBlack(x, y)) byte |= 1 << (7 - bit);
       }
-      const pos = y * outputWidthBytes + offset + bx;
-      if (pos >= 0 && pos < out.length) out[pos] = byte;
+      out[pos] = byte;
     }
   }
   return out;

@@ -315,7 +315,26 @@ export async function rasterFor(elements: LabelElement[]): Promise<Raster> {
   // the bug where a value containing "[[date]]" prints the current date.
   const ready = elements;
   await prepareForRender(ready);
+  warnIfWiderThanPrinter(layout, target);
   return buildRaster(ready, layout, target, modeFor(ready, cfg), rotateForPrint);
+}
+
+/**
+ * Tell the user when the label is wider than the printer can physically print.
+ *
+ * packBits clips such a label to the printer's width, so something sensible comes out — but the
+ * design the user made is not what lands on paper, and until now nothing said so. The clip
+ * itself was a bug (the offset went negative and rows spilled into each other); this is the
+ * remaining half: telling the user their design does not fit.
+ */
+function warnIfWiderThanPrinter(layout: { width: number }, target: { widthBytes: number }): void {
+  // widthBytes is 8px per byte; the layout is in the same label pixels (8 px/mm).
+  const printablePx = target.widthBytes * 8;
+  if (layout.width <= printablePx) return;
+  st().toast(
+    tr('labelTooWide', { label: Math.round(layout.width / 8), printer: target.widthBytes }),
+    'info',
+  );
 }
 
 /**

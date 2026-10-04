@@ -75,6 +75,7 @@ export const ar: Record<Key, string> = {
   aboutTitle: 'عن Phomymo Next', aboutBody: 'مصمم ملصقات لطابعات Phomemo الحرارية. تبقى التصاميم في متصفحك، وتتم الطباعة مباشرة من المتصفح إلى الطابعة عبر البلوتوث أو USB.',
   shortcuts: 'اختصارات',
   errorImage: 'تعذّرت قراءة الصورة', errorFile: 'تعذّرت قراءة الملف', storageFull: 'تعذّر الحفظ — قد تكون مساحة المتصفح ممتلئة',
+  labelTooWide: 'عرض الملصق {label}مم,但 هذه الطابعة تطبع {printer}مم — تم قص الجوانب',
   systemFonts: 'إضافة خطوط النظام', systemFontsUnsupported: 'خطوط النظام غير متاحة في هذا المتصفح',
   yes: 'نعم', no: 'لا',
 };

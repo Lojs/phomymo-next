@@ -85,6 +85,7 @@ export const en = {
   shortcuts: 'Shortcuts',
   // misc
   errorImage: 'Could not read that image', errorFile: 'Could not read that file', storageFull: 'Could not save — browser storage may be full',
+  labelTooWide: 'Label is {label}mm wide but this printer prints {printer}mm — the sides were cut off',
   systemFonts: 'Add system fonts', systemFontsUnsupported: 'System fonts are not available in this browser',
   yes: 'Yes', no: 'No',
 } as const;
