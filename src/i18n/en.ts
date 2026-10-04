@@ -4,6 +4,7 @@ export const en = {
   undo: 'Undo', redo: 'Redo', print: 'Print', printing: 'Printing…', connect: 'Connect', connectPrinter: 'Connect Printer', connecting: 'Connecting…',
   disconnect: 'Disconnect', connected: 'Connected', notConnected: 'Not connected', language: 'Language',
   // tools
+  tools: 'Tools',
   addText: 'Text', addImage: 'Image', addBarcode: 'Barcode', addQR: 'QR code', addShape: 'Shapes', templateData: 'Data',
   rectangle: 'Rectangle', ellipse: 'Ellipse', triangle: 'Triangle', line: 'Line',
   diamond: 'Diamond', star: 'Star', heart: 'Heart', pentagon: 'Pentagon', hexagon: 'Hexagon',
@@ -31,14 +32,17 @@ export const en = {
   lengthMinus: 'Shorter', lengthPlus: 'Longer',
   // roll
   multiLabelRoll: 'Multi-label roll', labelsAcross: 'Labels across', gap: 'Gap', cloneMode: 'Same design on every label',
-  cloneNow: 'Copy this label to all', presets: 'Presets', savePreset: 'Save preset', presetName: 'Preset name',
+  cloneNow: 'Copy this label to all', presets: 'Presets', savePreset: 'Save preset', presetName: 'Preset name', tooWide: 'Too wide for this printer',
   apply: 'Apply', exitRoll: 'Back to single label', zone: 'Label {n}', cancel: 'Cancel', close: 'Close', done: 'Done', save: 'Save',
   // properties
   properties: 'Properties', position: 'Position', size: 'Size', rotation: 'Rotation', arrange: 'Arrange',
   bringFront: 'Bring to front', sendBack: 'Send to back', forward: 'Forward', backward: 'Backward',
   group: 'Group', ungroup: 'Ungroup', duplicate: 'Duplicate', remove: 'Delete', multipleSelected: '{n} elements selected',
   text: 'Text', font: 'Font', fontSize: 'Size', bold: 'Bold', italic: 'Italic', underline: 'Underline',
+  alignH: 'Horizontal alignment', alignV: 'Vertical alignment',
   alignLeft: 'Left', alignCenter: 'Center', alignRight: 'Right', alignTop: 'Top', alignMiddle: 'Middle', alignBottom: 'Bottom',
+  fontSans: 'Sans', fontSerif: 'Serif', fontMono: 'Mono', fontDisplay: 'Display', fontArabic: 'Arabic', systemGroup: 'System',
+  x: 'X', y: 'Y',
   textColor: 'Text colour', black: 'Black', white: 'White', background: 'Background', transparent: 'Transparent',
   noWrap: 'Single line', clipOverflow: 'Clip overflow', autoScale: 'Fit text to box',
   fontSizeAuto: 'Set automatically while “Fit text to box” is on.',
@@ -51,7 +55,7 @@ export const en = {
   brightness: 'Brightness', contrast: 'Contrast', dither: 'Dithering', lockAspect: 'Keep proportions',
   ditherNone: 'None (threshold)', ditherOrdered: 'Ordered (Bayer)', ditherAtkinson: 'Atkinson', ditherFloyd: 'Floyd–Steinberg',
   // stage
-  zoomIn: 'Zoom in', zoomOut: 'Zoom out', zoomFit: 'Fit to screen', emptyStageTitle: 'Your label is empty',
+  zoom: 'Zoom', zoomIn: 'Zoom in', zoomOut: 'Zoom out', zoomFit: 'Fit to screen', emptyStageTitle: 'Your label is empty',
   emptyStageBody: 'Add text, an image, a barcode or a QR code from the toolbar.',
   // template
   templateTitle: 'Template data', fieldsHint: 'Use {{Name}} in text, barcode or QR content to merge a field per record.',

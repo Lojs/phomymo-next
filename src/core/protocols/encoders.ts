@@ -34,24 +34,18 @@ const delay = (ms: number): Op => ({ t: 'delay', ms });
 
 // ---- command builders -------------------------------------------------------
 
-/** Density 1–8 → heat time (higher = darker). */
+/**
+ * Density 1–8 → heat time (higher = darker).
+ *
+ * The index is clamped, and a non-finite density falls back to the middle of the range. Without
+ * the NaN case, `heatTimes[NaN]` is undefined, which reached HEAT_SETTINGS and became NaN in the
+ * header byte — the printer would have received an undefined heat time.
+ */
 export function densityToHeatTime(density: number): number {
   const heatTimes = [40, 60, 80, 100, 120, 140, 160, 200];
-  return heatTimes[Math.max(0, Math.min(7, density - 1))];
+  if (!Number.isFinite(density)) return heatTimes[4];
+  return heatTimes[Math.max(0, Math.min(7, Math.round(density) - 1))];
 }
-
-const CMD = {
-  INIT: u8(0x1b, 0x40),
-  FEED: (dots: number) => u8(0x1b, 0x4a, dots),
-  DENSITY: (level: number) => u8(0x1d, 0x7c, level),
-  HEAT_SETTINGS: (maxDots: number, heatTime: number, heatInterval: number) =>
-    u8(0x1b, 0x37, maxDots, heatTime, heatInterval),
-  LINE_SPACING: (dots: number) => u8(0x1b, 0x33, dots),
-  RASTER_HEADER: (widthBytes: number, heightLines: number) =>
-    u8(0x1d, 0x76, 0x30, 0x00, widthBytes, 0x00, heightLines & 0xff, (heightLines >> 8) & 0xff),
-};
-
-const M02_PREFIX = u8(0x10, 0xff, 0xfe, 0x01);
 
 const dims16 = (widthBytes: number, rows: number) => [
   widthBytes % 256,
@@ -59,6 +53,20 @@ const dims16 = (widthBytes: number, rows: number) => [
   rows % 256,
   Math.floor(rows / 256),
 ];
+
+const CMD = {
+  INIT: u8(0x1b, 0x40),
+  // Feed is a single byte on the wire: clamp instead of letting Uint8Array wrap (feed > 255).
+  FEED: (dots: number) => u8(0x1b, 0x4a, Math.max(0, Math.min(255, Math.round(dots)))),
+  DENSITY: (level: number) => u8(0x1d, 0x7c, level),
+  HEAT_SETTINGS: (maxDots: number, heatTime: number, heatInterval: number) =>
+    u8(0x1b, 0x37, maxDots, heatTime, heatInterval),
+  LINE_SPACING: (dots: number) => u8(0x1b, 0x33, dots),
+  RASTER_HEADER: (widthBytes: number, heightLines: number) =>
+    u8(0x1d, 0x76, 0x30, 0x00, ...dims16(widthBytes, heightLines)),
+};
+
+const M02_PREFIX = u8(0x10, 0xff, 0xfe, 0x01);
 
 const D_HEADER = (widthBytes: number, rows: number) =>
   u8(0x1b, 0x40, 0x1d, 0x76, 0x30, 0x00, ...dims16(widthBytes, rows));
@@ -155,8 +163,11 @@ function m02(r: Raster, density: number): Op[] {
 
 function m04(r: Raster, density: number, feed: number): Op[] {
   const ops: Op[] = [];
-  const m04Density = Math.round((density / 8) * 15);
-  const m04Heat = Math.round(100 + ((density - 1) * 50) / 3);
+  // The heat/density maps below are only meaningful for the 1-8 the UI offers. A value outside
+  // that range produced a heat time past the table's end rather than an obvious error.
+  const d = Math.max(1, Math.min(8, Math.round(density)));
+  const m04Density = Math.round((d / 8) * 15);
+  const m04Heat = Math.round(100 + ((d - 1) * 50) / 3);
   ops.push(send(M04.DENSITY(m04Density)), delay(30));
   ops.push(send(M04.HEAT(m04Heat)), delay(30));
   ops.push(send(M04.INIT), delay(30));
@@ -172,7 +183,8 @@ function m04(r: Raster, density: number, feed: number): Op[] {
 
 function m110(r: Raster, density: number): Op[] {
   const ops: Op[] = [];
-  const m110Density = Math.round(5 + density * 1.25);
+  const d = Math.max(1, Math.min(8, Math.round(density)));
+  const m110Density = Math.round(5 + d * 1.25);
   ops.push(send(M110.SPEED(5)), delay(30));
   ops.push(send(M110.DENSITY(m110Density)), delay(30));
   ops.push(send(M110.MEDIA_TYPE(10)), delay(30));

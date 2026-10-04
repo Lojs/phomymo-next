@@ -191,7 +191,7 @@ npm run typecheck
 
 ### Tests
 
-**1218 tests** across 48 files — 1200 run here, and 18 more are the nginx
+**1226 tests** across 49 files — 1208 run here, and 18 more are the nginx
 routing tests, which skip themselves when nginx is not installed and run on CI.
 Many are **golden tests**: they compare this rewrite's output byte-for-byte
 against a frozen copy of the original implementation in `tests/legacy/`, so a
@@ -199,7 +199,7 @@ refactor cannot quietly change what reaches the paper.
 
 The count moves as the suite grows, and `npx vitest list` under-reports it (it
 skips the jsdom project). Read it off the last line of `npm test` instead:
-`Tests  1200 passed | 18 skipped (1218)`.
+`Tests  1208 passed | 18 skipped (1226)`.
 
 `npm run typecheck` and `npm run build` are separate; CI runs all three before
 anything is published. Note that `npm test` alone does **not** compute coverage —

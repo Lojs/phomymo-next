@@ -46,6 +46,9 @@ export const orientationApplies = (size: Pick<LabelSize, 'width' | 'height' | 'r
  */
 export function resolveOrientation(size: Pick<LabelSize, 'width' | 'height' | 'round' | 'orientation'>): Orientation {
   if (size.orientation) return size.orientation;
+  // Non-finite dimensions carry no geometry. Without this, a NaN width compared as `<=` any
+  // height and resolved to 'landscape', silently blessing a corrupt size into a wide canvas.
+  if (!Number.isFinite(size.width) || !Number.isFinite(size.height)) return 'portrait';
   return size.width <= size.height ? 'portrait' : 'landscape';
 }
 
@@ -72,9 +75,19 @@ export interface MultiLabelConfig {
  * This is what the printer/protocol pipeline has always assumed and continues to assume;
  * orientation is handled entirely upstream of it (see buildRaster's `rotateForPrint`).
  */
+/**
+ * Sanitize a millimetre dimension before it becomes pixels.
+ *
+ * Layout feeds canvas allocation downstream. A custom label size, or a corrupt one that reached the
+ * store in an older session, can carry NaN or Infinity here, and Math.round(NaN) produces a canvas
+ * the browser cannot allocate. Bounded at 500 mm, which is far beyond any label this app supports.
+ */
+const saneMm = (v: number, fallback: number): number =>
+  Number.isFinite(v) ? Math.min(500, Math.max(1, v)) : fallback;
+
 export function singleLayout(size: LabelSize): LabelLayout {
-  const w = Math.round(size.width * PX_PER_MM);
-  const h = Math.round(size.height * PX_PER_MM);
+  const w = Math.round(saneMm(size.width, 40) * PX_PER_MM);
+  const h = Math.round(saneMm(size.height, 30) * PX_PER_MM);
   return { width: w, height: h, round: !!size.round, zones: null, labelWidth: w, labelHeight: h };
 }
 
