@@ -295,7 +295,21 @@ export class USBTransport {
       throw new Error('Not connected');
     }
 
-    const buffer = data instanceof Uint8Array ? data : new Uint8Array(data);
+    // Same normalisation as the BLE transport: a DataView has byteLength/byteOffset but no
+    // `length`, so `new Uint8Array(data)` yields an empty array and send() would report a
+    // complete zero-byte transfer — a silent no-op in a byte-exact path.
+    let view: Uint8Array;
+    if (ArrayBuffer.isView(data)) {
+      view = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    } else if (Array.isArray(data)) {
+      view = new Uint8Array(data);
+    } else if (data != null && typeof (data as ArrayLike<number>).length === 'number') {
+      view = new Uint8Array(Array.from(data as ArrayLike<number>));
+    } else {
+      throw new Error('send() expects an ArrayBuffer, a typed array, or an array of bytes');
+    }
+    if (view.length === 0) throw new Error('send() was given an empty buffer');
+    const buffer = view;
 
     // A bulk OUT endpoint is PERMITTED to accept fewer bytes than offered while reporting
     // status 'ok'. Treating that as a hard failure threw away the unwritten tail of a raster
@@ -343,10 +357,15 @@ export class USBTransport {
   }
 
   /**
-   * Delay helper
+   * Delay helper. Honours an AbortSignal so a cancel takes effect immediately.
    */
-  delay(ms: any) {
-    return new Promise((resolve: any) => setTimeout(resolve, ms));
+  delay(ms: number, signal?: AbortSignal) {
+    if (signal?.aborted) return Promise.reject(new DOMException('Print cancelled', 'AbortError'));
+    return new Promise((resolve: any, reject: any) => {
+      const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+      const onAbort = () => { clearTimeout(timer); reject(new DOMException('Print cancelled', 'AbortError')); };
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
   }
 
   /**

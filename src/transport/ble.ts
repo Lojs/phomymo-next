@@ -243,40 +243,40 @@ export class BLETransport {
 
     return new Promise((resolve: any) => {
       const abortController = new AbortController();
-      let resolved = false;
+      const device = this.device;
+      let settled = false;
 
-      // Timeout fallback
+      // One finish path for all three exits. The listener is `{ once: true }`, so the
+      // advertisement branch self-cleans — but the TIMEOUT and watchAdvertisements branches did not
+      // remove it, and connect() calls waitForDeviceReady() once per picker attempt (up to three)
+      // against a device the spec keeps alive for the page's lifetime, so the closures accumulated.
+      const onAdvertisement = () => {
+        trace('Device advertisement received, device is ready');
+        finish();
+      };
+      function finish() {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        device.removeEventListener('advertisementreceived', onAdvertisement);
+        try { abortController.abort(); } catch { /* already aborted */ }
+        resolve();
+      }
+
       const timeoutId = setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          abortController.abort();
-          trace('Device ready timeout, proceeding anyway...');
-          resolve();
-        }
+        if (!settled) trace('Device ready timeout, proceeding anyway...');
+        finish();
       }, timeout);
 
-      // Listen for advertisement
-      this.device.addEventListener('advertisementreceived', () => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeoutId);
-          abortController.abort();
-          trace('Device advertisement received, device is ready');
-          resolve();
-        }
-      }, { once: true });
+      device.addEventListener('advertisementreceived', onAdvertisement, { once: true });
 
       // Start watching
       trace('Waiting for device to be ready...');
-      this.device.watchAdvertisements({ signal: abortController.signal })
+      device.watchAdvertisements({ signal: abortController.signal })
         .catch((e: any) => {
           // watchAdvertisements may fail or be aborted, that's okay
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeoutId);
-            trace('watchAdvertisements ended:', e.message);
-            resolve();
-          }
+          if (!settled) trace('watchAdvertisements ended:', e.message);
+          finish();
         });
     });
   }
@@ -475,16 +475,31 @@ export class BLETransport {
       throw new Error('Not connected');
     }
 
-    // Ensure we have a proper ArrayBuffer with only the data we want
-    let buffer;
+    // Normalise whatever the encoders handed us into an exact byte range.
+    //
+    // `new Uint8Array(data)` on an object that is neither iterable nor array-like yields a
+    // ZERO-LENGTH array. A DataView is exactly that: it has byteLength/byteOffset but no
+    // length. So a DataView would have produced an empty payload, and in USB the
+    // bytesWritten check could never fire because both sides were 0 — a completely silent
+    // no-op in a byte-exact path.
+    let view: Uint8Array;
     if (data instanceof ArrayBuffer) {
-      buffer = data;
-    } else if (data instanceof Uint8Array) {
-      // Create a new buffer with just this data (handles slices correctly)
-      buffer = new Uint8Array(data).buffer;
+      view = new Uint8Array(data);
+    } else if (ArrayBuffer.isView(data)) {
+      // Any typed array or DataView: honour its window rather than its backing buffer. This is
+      // also the path a raster chunk takes — a subarray of a much larger buffer, where writing
+      // the backing buffer would send megabytes of unrelated pixels.
+      view = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    } else if (Array.isArray(data)) {
+      view = new Uint8Array(data);
+    } else if (data != null && typeof (data as ArrayLike<number>).length === 'number') {
+      // A plain array-like (an arguments object, say).
+      view = new Uint8Array(Array.from(data as ArrayLike<number>));
     } else {
-      buffer = new Uint8Array(data).buffer;
+      throw new Error('send() expects an ArrayBuffer, a typed array, or an array of bytes');
     }
+    if (view.length === 0) throw new Error('send() was given an empty buffer');
+    const buffer = view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
 
     // Use the appropriate write method based on characteristic properties
     if (this._useWriteWithResponse) {
@@ -494,11 +509,14 @@ export class BLETransport {
         await this.writeChar.writeValueWithoutResponse(buffer);
       } catch (e) {
         // Fallback to writeValue if writeValueWithoutResponse fails.
-        // Only flip the flag for persistent failures (e.g. NotSupportedError),
-        // not transient ones (e.g. NetworkError) — a transient error should
-        // not permanently change the write mode for the rest of the session.
+        //
+        // Only a PERSISTENT capability failure flips the mode. In Web Bluetooth, InvalidStateError
+        // from writeValueWithoutResponse is the canonical TRANSIENT "GATT connection is gone"
+        // error — what you get when the printer drops mid-job, not when the characteristic lacks
+        // the capability. Including it here halved throughput for the rest of the session after
+        // every mid-job disconnect (one round-trip per chunk instead of fire-and-forget).
         const name = (e as Error)?.name;
-        if (name === 'NotSupportedError' || name === 'InvalidStateError') {
+        if (name === 'NotSupportedError') {
           this._useWriteWithResponse = true;
         }
         await this.writeChar.writeValue(buffer);
@@ -508,14 +526,21 @@ export class BLETransport {
 
   /**
    * Wait for a response from the printer (BLE notification)
-   * Used by P12 protocol to wait for status query responses
+   *
+   * `expect` optionally filters which frames satisfy the wait. Without it this resolves on the
+   * FIRST notification of any kind — including the unsolicited frames the printer pushes on its
+   * own (cover 1a 05 99, paper-out 1a 06 88, print-status 1a 0b ..). In the P12 handshake
+   * (six INIT_SEQUENCE commands, each followed by a `wait`) that let the next command go out
+   * before the printer had acked the previous one. Pass a predicate to wait for a specific frame.
+   *
    * @param {number} timeout - Maximum time to wait in ms (default 500)
-   * @returns {Promise<DataView|null>} Response data or null if timeout
+   * @param {(data: Uint8Array) => boolean} expect - Only a frame passing this resolves the wait
+   * @returns {Promise<DataView|null>} Response data, or null on timeout/disconnect/no match
    */
-  async waitForResponse(timeout = 500) {
+  async waitForResponse(timeout = 500, expect?: (data: Uint8Array) => boolean, signal?: AbortSignal) {
     if (!this.notifyChar) {
       // No notification characteristic, use delay fallback
-      await this.delay(timeout);
+      await this.delay(timeout, signal);
       return null;
     }
 
@@ -523,27 +548,41 @@ export class BLETransport {
     // cannot null it out from under the timer/handler.
     const ch = this.notifyChar;
 
-    return new Promise((resolve: any) => {
+    return new Promise((resolve: any, reject: any) => {
       const waiter: { resolve: (v: unknown) => void; cleanup: () => void } = { resolve, cleanup: () => {} };
       this._pendingWaiters.add(waiter);
 
       const cleanup = () => {
         this._pendingWaiters.delete(waiter);
         clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
         ch.removeEventListener('characteristicvaluechanged', handler);
       };
       waiter.cleanup = cleanup;
 
+      const onAbort = () => { cleanup(); reject(new DOMException('Print cancelled', 'AbortError')); };
       const timer = setTimeout(() => {
         cleanup();
         resolve(null);
       }, timeout);
 
+      if (signal?.aborted) { cleanup(); reject(new DOMException('Print cancelled', 'AbortError')); return; }
+      signal?.addEventListener('abort', onAbort, { once: true });
+
       const handler = (event: any) => {
+        const v = event.target.value;
+        // Honour the DataView's window. `new Uint8Array(v.buffer)` ignored byteOffset/byteLength
+        // and printed the whole backing buffer, so the [BLE Response] trace showed bytes the
+        // printer never sent. handleNotification reads it correctly; this was the odd one out.
+        const data = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+        // A frame that does not match is not our answer — keep waiting rather than resolving.
+        if (expect && !expect(data)) {
+          trace('[BLE Response] (ignored)', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
+          return;
+        }
         cleanup();
-        const data = new Uint8Array(event.target.value.buffer);
         trace('[BLE Response]', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
-        resolve(event.target.value);
+        resolve(v);
       };
 
       ch.addEventListener('characteristicvaluechanged', handler);
@@ -571,10 +610,17 @@ export class BLETransport {
   }
 
   /**
-   * Delay helper
+   * Delay helper. Honours an AbortSignal so a cancel does not have to wait the delay out —
+   * the mSeries post-feed is 800 ms, which was the worst case between pressing Cancel and the
+   * printer going quiet.
    */
-  delay(ms: any) {
-    return new Promise((resolve: any) => setTimeout(resolve, ms));
+  delay(ms: number, signal?: AbortSignal) {
+    if (signal?.aborted) return Promise.reject(new DOMException('Print cancelled', 'AbortError'));
+    return new Promise((resolve: any, reject: any) => {
+      const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+      const onAbort = () => { clearTimeout(timer); reject(new DOMException('Print cancelled', 'AbortError')); };
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
   }
 
   /**
