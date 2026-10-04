@@ -182,23 +182,35 @@ npm install
 npm run dev         # http://localhost:5173 — localhost counts as secure, so BLE/USB work here too
 npm run build       # production build into dist/
 npm test            # unit + golden tests against the original app's logic
+npm run test:ci     # the same, plus coverage thresholds — this is what CI runs
 npm run typecheck
 ```
 
 ### Tests
 
-**1097 tests** across 39 files. A core of them are **golden tests**: they compare this
+**1156 tests** across 45 files. A core of them are **golden tests**: they compare this
 rewrite's output byte-for-byte against a frozen copy of the original implementation
 in `tests/legacy/`, so a refactor can't quietly change what reaches the paper.
 
 The count moves as the suite grows, and `npx vitest list` under-reports it (it skips the jsdom
-project). Read it off the last line of `npm test` instead: `Tests 1097 passed (1097)`.
+project). Read it off the last line of `npm test` instead: `Tests 1156 passed (1156)`.
 
 `npm test` runs the suite; `npm run typecheck` and `npm run build` are separate, and
-CI runs all three before anything is published. Two places deliberately diverge from
-the legacy behaviour — a CSV file that is empty is reported as empty instead of
-parsing as one nameless column, and a malformed CSV row is reported by its real line
-number — and both are asserted explicitly rather than left to drift. See
+CI runs all three before anything is published. `npm run test:ci` additionally enforces
+the coverage thresholds in `vite.config.ts` (80% statements, 70% branches) — `npm test`
+alone does not compute coverage, so a suite can pass locally and still fail the coverage
+gate on CI.
+
+Three places deliberately diverge from the legacy behaviour:
+
+- a CSV file that is empty is reported as empty instead of parsing as one nameless column;
+- a malformed CSV row is reported by its real line number;
+- **a label wider than the printer is clipped to the printer's print width.** The legacy
+  `packBits()` computed a negative offset in that case and then wrote past the end of
+  each row, overwriting the next one — a 60 mm label on a 40 mm printer produced a
+  blank label with no error. See `tests/raster-overflow.test.ts`.
+
+Each is asserted explicitly rather than left to drift. See
 `tests/golden-raster-templates.test.ts` for what each one changed and why.
 
 ---
