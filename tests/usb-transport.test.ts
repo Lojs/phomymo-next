@@ -33,7 +33,7 @@ function fakeDevice(opts: {
       device.selected = n;
     },
     async claimInterface(n: number) { claimed.push(n); },
-    async transferOut(ep: number, data: Uint8Array) { transfers.push({ endpoint: ep, bytes: [...data] }); },
+    async transferOut(ep: number, data: Uint8Array) { transfers.push({ endpoint: ep, bytes: [...data] }); return { status: 'ok', bytesWritten: data.length }; },
   };
   return { device, claimed, transfers };
 }
@@ -91,13 +91,12 @@ describe('endpoint discovery', () => {
     expect(claimed).toEqual([2]);
   });
 
-  it('falls back to interface 0 when no interface is printer-class', async () => {
-    const { device, claimed } = fakeDevice({
+  it('throws when no interface is printer-class', async () => {
+    const { device } = fakeDevice({
       interfaces: [{ number: 0, cls: 0xff, alt: 0, endpoints: [{ number: 1, dir: 'out' }] }],
     });
     const t = new USBTransport();
-    await t.connectToDevice(device);
-    expect(claimed).toEqual([0]);
+    await expect(t.connectToDevice(device)).rejects.toThrow(/printer-class/i);
   });
 
   it('picks an OUT endpoint and ignores IN endpoints', async () => {

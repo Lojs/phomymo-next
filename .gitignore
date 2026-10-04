@@ -26,3 +26,6 @@ Thumbs.db
 .vite/
 coverage/
 *.tsbuildinfo
+
+# Local certificates — never commit private keys
+phomymo-certs/

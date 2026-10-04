@@ -26,7 +26,7 @@ describe('the publishing workflow', () => {
 
   it('has a job that runs the tests', () => {
     const src = read(publish!);
-    expect(src).toMatch(/run:\s*npm test/);
+    expect(src).toMatch(/run:\s*npm run test:ci/);
     expect(src).toMatch(/run:\s*npm run typecheck/);
   });
 

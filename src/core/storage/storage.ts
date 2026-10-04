@@ -6,6 +6,7 @@ import type { LabelElement } from '../model/elements';
 import type { LabelSize, MultiLabelConfig } from '../render/layout';
 import type { TemplateRecord } from '../template/template';
 import type { PrinterDefinition } from '../printers/definitions';
+import { LIMITS } from '../printers/presets';
 
 export const KEYS = {
   DEVICE_MAPPING: 'phomymo_device_models',
@@ -164,6 +165,17 @@ const isLabelSize = (v: unknown): boolean => {
   return true;
 };
 
+/** Clamp a value to [min, max], but preserve 0 as a legitimate value. */
+const clampOrZero = (v: number, min: number, max: number): number =>
+  v === 0 ? 0 : Math.min(max, Math.max(min, v));
+
+/** Clamp a label size to the app's limits so a corrupt file can't allocate an enormous canvas. */
+const clampLabelSize = (s: LabelSize): LabelSize => ({
+  ...s,
+  width: clampOrZero(s.width, LIMITS.label.minW, LIMITS.label.maxW),
+  height: clampOrZero(s.height, LIMITS.label.minH, LIMITS.label.maxH),
+});
+
 export function parseDesignJSON(json: string): { name: string | null; design: Design } {
   let data: any;
   try {
@@ -175,7 +187,7 @@ export function parseDesignJSON(json: string): { name: string | null; design: De
   if (!isLabelSize(data.labelSize)) throw new Error('Invalid design format: missing or malformed label size');
   const bad = data.elements.findIndex((e: unknown) => !isElement(e));
   if (bad !== -1) throw new Error(`Invalid design format: element ${bad + 1} is malformed`);
-  const design: Design = { elements: data.elements, labelSize: data.labelSize };
+  const design: Design = { elements: data.elements, labelSize: clampLabelSize(data.labelSize) };
   if (data.isTemplate) design.isTemplate = true;
 
   // Everything below used to be accepted on a bare Array.isArray / typeof-object check, so a file
@@ -216,10 +228,10 @@ export function parseDesignJSON(json: string): { name: string | null; design: De
     };
     design.multiLabel = {
       enabled: !!m.enabled,
-      labelWidth: num(m.labelWidth, 10, 'labelWidth'),
-      labelHeight: num(m.labelHeight, 20, 'labelHeight'),
-      labelsAcross: num(m.labelsAcross, 4, 'labelsAcross'),
-      gapMm: num(m.gapMm, 2, 'gapMm'),
+      labelWidth: clampOrZero(num(m.labelWidth, 10, 'labelWidth'), LIMITS.label.minW, LIMITS.label.maxW),
+      labelHeight: clampOrZero(num(m.labelHeight, 20, 'labelHeight'), LIMITS.label.minH, LIMITS.label.maxH),
+      labelsAcross: clampOrZero(num(m.labelsAcross, 4, 'labelsAcross'), LIMITS.multi.minAcross, LIMITS.multi.maxAcross),
+      gapMm: clampOrZero(num(m.gapMm, 2, 'gapMm'), LIMITS.multi.minGap, LIMITS.multi.maxGap),
       cloneMode: m.cloneMode !== false,
     };
   }
@@ -239,7 +251,17 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = { density: 6, copies: 1, feed: 32, printerModel: 'auto', tapeWidth: 12, ditherPreview: false };
 
-export const loadSettings = (): Settings => ({ ...DEFAULT_SETTINGS, ...ownRecord(read<Partial<Settings>>(KEYS.SETTINGS, {}, isRecord)) });
+export const loadSettings = (): Settings => {
+  const raw = ownRecord(read<Partial<Settings>>(KEYS.SETTINGS, {}, isRecord));
+  return {
+    density: clampOrZero(typeof raw.density === 'number' && Number.isFinite(raw.density) ? raw.density : DEFAULT_SETTINGS.density, 1, 8),
+    copies: clampOrZero(typeof raw.copies === 'number' && Number.isFinite(raw.copies) ? raw.copies : DEFAULT_SETTINGS.copies, 1, 99),
+    feed: clampOrZero(typeof raw.feed === 'number' && Number.isFinite(raw.feed) ? raw.feed : DEFAULT_SETTINGS.feed, 0, 255),
+    printerModel: typeof raw.printerModel === 'string' ? raw.printerModel : DEFAULT_SETTINGS.printerModel,
+    tapeWidth: clampOrZero(typeof raw.tapeWidth === 'number' && Number.isFinite(raw.tapeWidth) ? raw.tapeWidth : DEFAULT_SETTINGS.tapeWidth, 0, 100),
+    ditherPreview: typeof raw.ditherPreview === 'boolean' ? raw.ditherPreview : DEFAULT_SETTINGS.ditherPreview,
+  };
+};
 export const saveSettings = (s: Settings) => void write(KEYS.SETTINGS, s);
 
 // ---- per-device memory (printer model, tape width) -------------------------------------------
@@ -302,7 +324,7 @@ export function loadAutosave(): Design | null {
   const d = raw as Record<string, unknown>;
 
   const elements = Array.isArray(d.elements) ? (d.elements.filter(isElement) as LabelElement[]) : [];
-  const labelSize = isLabelSize(d.labelSize) ? (d.labelSize as LabelSize) : { ...DEFAULT_LABEL_SIZE };
+  const labelSize = isLabelSize(d.labelSize) ? clampLabelSize(d.labelSize as LabelSize) : { ...DEFAULT_LABEL_SIZE };
 
   // Nothing recognisable survived: treat it as no autosave rather than opening an empty design, which
   // would look to the user like their work vanished.
@@ -316,10 +338,10 @@ export function loadAutosave(): Design | null {
     const m = d.multiLabel as Record<string, unknown>;
     design.multiLabel = {
       enabled: !!m.enabled,
-      labelWidth: finiteOr(m.labelWidth, 10),
-      labelHeight: finiteOr(m.labelHeight, 20),
-      labelsAcross: finiteOr(m.labelsAcross, 4),
-      gapMm: finiteOr(m.gapMm, 2),
+      labelWidth: clampOrZero(finiteOr(m.labelWidth, 10), LIMITS.label.minW, LIMITS.label.maxW),
+      labelHeight: clampOrZero(finiteOr(m.labelHeight, 20), LIMITS.label.minH, LIMITS.label.maxH),
+      labelsAcross: clampOrZero(finiteOr(m.labelsAcross, 4), LIMITS.multi.minAcross, LIMITS.multi.maxAcross),
+      gapMm: clampOrZero(finiteOr(m.gapMm, 2), LIMITS.multi.minGap, LIMITS.multi.maxGap),
       cloneMode: m.cloneMode !== false,
     };
   }

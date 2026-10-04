@@ -499,7 +499,12 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushAutosave();
   });
-  document.addEventListener('pagehide', () => flushAutosave());
+  // pagehide is dispatched on Window, not Document — a listener on document
+  // is not expected to run. visibilitychange covers most real cases, but
+  // pagehide is the reliable signal on some browsers (e.g. iOS Safari).
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('pagehide', () => flushAutosave());
+  }
 }
 
 export const selectedBounds = () => boundsOfMany(useStore.getState().selected());

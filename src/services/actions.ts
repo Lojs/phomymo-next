@@ -92,7 +92,13 @@ async function loadPdfFirstPage(file: File): Promise<LoadedImage> {
   const task = pdfjs.getDocument({ data: await file.arrayBuffer() });
   const doc = await task.promise;
   const page = await doc.getPage(1);
-  const viewport = page.getViewport({ scale: 2 });
+  // Cap the render scale so a poster-sized PDF page doesn't exceed canvas limits.
+  // At scale 2 a 595×842 pt A4 page is ~1684×2339 px — fine. But a 24×36 inch poster
+  // at scale 2 would be 3456×5184 px, which exceeds some browsers' canvas limits.
+  const baseViewport = page.getViewport({ scale: 1 });
+  const maxDim = 3000;
+  const scale = Math.min(2, maxDim / Math.max(baseViewport.width, baseViewport.height));
+  const viewport = page.getViewport({ scale });
   const cv = document.createElement('canvas');
   cv.width = viewport.width;
   cv.height = viewport.height;
@@ -133,7 +139,8 @@ export async function replaceImageFile(id: string, file: File): Promise<void> {
     const img = await loadImageFile(file);
     st().checkpoint();
     st().patch([id], (el) => {
-      const ratio = img.width / img.height;
+      // Guard against zero intrinsic size (e.g. SVG without width/height/viewBox)
+      const ratio = img.height > 0 ? img.width / img.height : 1;
       return { imageData: img.dataUrl, naturalWidth: img.width, naturalHeight: img.height, height: Math.max(30, Math.round(el.width / ratio)) } as Partial<LabelElement>;
     });
   } catch {
@@ -161,15 +168,20 @@ function download(name: string, blob: Blob) {
  * indistinguishable. `\p{L}\p{N}` keeps letters of any script, which is the whole point for an app
  * whose interface is Arabic-first.
  */
-const fileBase = () =>
-  (st().designName ?? 'label')
+const fileBase = () => {
+  const name = (st().designName ?? 'label')
     .normalize('NFC')
-    // Path separators and characters no filesystem accepts, plus control characters.
-    .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_')
+    // Path separators and characters no filesystem accepts, plus control characters,
+    // bidi overrides, and C1 controls.
+    .replace(/[\\/:*?"<>|\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]+/g, '_')
     // Leading dots would hide the file, and a trailing dot or space is dropped by Windows.
     .replace(/^[.\s]+/, '')
     .replace(/[.\s]+$/, '')
-    .slice(0, 120) || 'label';
+    // Cut by code point (not UTF-16 code unit) to avoid splitting surrogate pairs.
+    .slice(0, 120);
+  // Windows reserved names (CON, NUL, COM1, etc.) — prefix with underscore.
+  return (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(name) ? '_' : '') + name || 'label';
+};
 
 export function exportJson() {
   const name = st().designName ?? tr('untitled');
@@ -186,25 +198,37 @@ async function labelCanvas(scale: number): Promise<HTMLCanvasElement> {
   const cv = document.createElement('canvas');
   cv.width = layout.width * scale;
   cv.height = layout.height * scale;
-  const ctx = cv.getContext('2d')!;
+  const ctx = cv.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D context unavailable');
   ctx.scale(scale, scale);
   paintLabel(ctx, merged, layout);
   return cv;
 }
 
 export async function exportPng() {
-  const cv = await labelCanvas(4);
-  cv.toBlob((b) => b && download(`${fileBase()}.png`, b), 'image/png');
+  try {
+    const cv = await labelCanvas(4);
+    cv.toBlob((b) => {
+      if (b) download(`${fileBase()}.png`, b);
+      else st().toast(tr('errorFile'), 'error');
+    }, 'image/png');
+  } catch (e) {
+    st().toast(`${tr('errorFile')}: ${(e as Error).message}`, 'error');
+  }
 }
 
 export async function exportPdf() {
-  const { jsPDF } = await import('jspdf');
-  const layout = st().layout();
-  const wMm = layout.width / 8, hMm = layout.height / 8;
-  const cv = await labelCanvas(4);
-  const pdf = new jsPDF({ orientation: wMm >= hMm ? 'landscape' : 'portrait', unit: 'mm', format: [wMm, hMm] });
-  pdf.addImage(cv.toDataURL('image/png'), 'PNG', 0, 0, wMm, hMm);
-  pdf.save(`${fileBase()}.pdf`);
+  try {
+    const { jsPDF } = await import('jspdf');
+    const layout = st().layout();
+    const wMm = layout.width / 8, hMm = layout.height / 8;
+    const cv = await labelCanvas(4);
+    const pdf = new jsPDF({ orientation: wMm >= hMm ? 'landscape' : 'portrait', unit: 'mm', format: [wMm, hMm] });
+    pdf.addImage(cv.toDataURL('image/png'), 'PNG', 0, 0, wMm, hMm);
+    pdf.save(`${fileBase()}.pdf`);
+  } catch (e) {
+    st().toast(`${tr('errorFile')}: ${(e as Error).message}`, 'error');
+  }
 }
 
 // ---- import -----------------------------------------------------------------------------------

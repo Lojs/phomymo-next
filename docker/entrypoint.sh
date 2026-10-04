@@ -19,6 +19,15 @@ MARKER="$CERT_DIR/.self-signed-for"
 DOMAIN="${PHOMYMO_DOMAIN:-localhost}"
 RENEW_BEFORE_SECONDS=2592000   # 30 days
 
+# Validate PHOMYMO_DOMAIN: only letters, digits, dots, hyphens, and colons (for IPv6).
+# A value containing '/', ';' or '}' would corrupt the certificate subject or nginx config.
+case "$DOMAIN" in
+  *[!a-zA-Z0-9.:-]*|"")
+    echo "[phomymo] PHOMYMO_DOMAIN contains invalid characters: '$DOMAIN'" >&2
+    echo "[phomymo] Only letters, digits, dots, hyphens and colons are allowed." >&2
+    exit 1 ;;
+esac
+
 mkdir -p "$CERT_DIR"
 
 fingerprint() {

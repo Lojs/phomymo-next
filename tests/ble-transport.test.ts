@@ -194,12 +194,23 @@ describe('sending', () => {
   it('falls back to writeValue when writeValueWithoutResponse rejects', async () => {
     const { t, writes } = connectedTransport();
     let calls = 0;
-    t.writeChar.writeValueWithoutResponse = async () => { calls++; throw new Error('not supported'); };
+    t.writeChar.writeValueWithoutResponse = async () => { calls++; throw new DOMException('not supported', 'NotSupportedError'); };
     await t.send(new Uint8Array([1]));
     expect(calls).toBe(1);
     expect(writes).toEqual([{ method: 'withResponse', bytes: [1] }]);
     // The fallback is remembered, so later writes skip the failing path.
     expect(t._useWriteWithResponse).toBe(true);
+  });
+
+  it('does not flip to write-with-response for transient errors', async () => {
+    const { t, writes } = connectedTransport();
+    let calls = 0;
+    t.writeChar.writeValueWithoutResponse = async () => { calls++; throw new Error('transient network error'); };
+    await t.send(new Uint8Array([1]));
+    expect(calls).toBe(1);
+    expect(writes).toEqual([{ method: 'withResponse', bytes: [1] }]);
+    // A transient error should not permanently change the write mode.
+    expect(t._useWriteWithResponse).toBe(false);
   });
 
   it('chunks a large payload without losing or duplicating bytes', async () => {
@@ -341,7 +352,7 @@ describe('query commands', () => {
     let withResponse = 0;
     t.writeChar = {
       properties: { write: true, writeWithoutResponse: true },
-      writeValueWithoutResponse: async () => { withoutResponse += 1; throw new Error('nope'); },
+      writeValueWithoutResponse: async () => { withoutResponse += 1; throw new DOMException('nope', 'NotSupportedError'); },
       writeValue: async () => { withResponse += 1; },
     };
     await t.send(new Uint8Array([1]));

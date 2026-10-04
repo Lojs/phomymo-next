@@ -12,7 +12,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host",
     "typecheck": "tsc -b --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:ci": "vitest run --coverage"
   },
   "dependencies": {
     "@fontsource/amiri": "^5.3.0",

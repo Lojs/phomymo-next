@@ -42,6 +42,8 @@ export class BLETransport {
   _useWriteWithResponse: boolean;
   /** The part of a `characteristicvaluechanged` event the transport reads. */
   _notificationHandler: ((event: Event) => void) | null = null;
+  /** Pending waitForResponse() resolvers, so a disconnect can resolve them all with null. */
+  _pendingWaiters: Set<(value: unknown) => void> = new Set();
   printerInfo: Record<string, unknown>;
   _queryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -162,7 +164,11 @@ export class BLETransport {
             optionalServices,
           });
         } catch (filterError) {
-          trace('Name filter failed, trying acceptAllDevices:', filterError.message);
+          // Only fall back to acceptAllDevices if the failure is NOT a user cancel.
+          // NotFoundError means the user closed the chooser — opening a second one
+          // makes it look like the first cancel didn't work.
+          if ((filterError as Error)?.name === 'NotFoundError') throw filterError;
+          trace('Name filter failed, trying acceptAllDevices:', (filterError as Error).message);
           this.device = await navigator.bluetooth.requestDevice({
             acceptAllDevices: true,
             optionalServices,
@@ -275,6 +281,9 @@ export class BLETransport {
         }
         this.notifyChar = null;
         this._notificationHandler = null;
+        // Resolve any pending waitForResponse() calls so they don't hang forever.
+        for (const resolve of this._pendingWaiters) resolve(null);
+        this._pendingWaiters.clear();
         if (this.onDisconnect) this.onDisconnect();
       });
       this.device._hasDisconnectHandler = true;
@@ -377,6 +386,7 @@ export class BLETransport {
     this.writeChar = null;
     this.notifyChar = null;
     this._notificationHandler = null;
+    this.resetPrinterInfo();
   }
 
   /**
@@ -405,9 +415,14 @@ export class BLETransport {
       try {
         await this.writeChar.writeValueWithoutResponse(buffer);
       } catch (e) {
-        // Fallback to writeValue if writeValueWithoutResponse fails
-        console.warn('writeValueWithoutResponse failed, trying writeValue:', e.message);
-        this._useWriteWithResponse = true;
+        // Fallback to writeValue if writeValueWithoutResponse fails.
+        // Only flip the flag for persistent failures (e.g. NotSupportedError),
+        // not transient ones (e.g. NetworkError) — a transient error should
+        // not permanently change the write mode for the rest of the session.
+        const name = (e as Error)?.name;
+        if (name === 'NotSupportedError' || name === 'InvalidStateError') {
+          this._useWriteWithResponse = true;
+        }
         await this.writeChar.writeValue(buffer);
       }
     }
@@ -426,21 +441,32 @@ export class BLETransport {
       return null;
     }
 
+    // Capture the characteristic in a local so a disconnect during the wait
+    // cannot null it out from under the timer/handler.
+    const ch = this.notifyChar;
+
     return new Promise((resolve: any) => {
+      this._pendingWaiters.add(resolve);
+
+      const cleanup = () => {
+        this._pendingWaiters.delete(resolve);
+        clearTimeout(timer);
+        ch.removeEventListener('characteristicvaluechanged', handler);
+      };
+
       const timer = setTimeout(() => {
-        this.notifyChar.removeEventListener('characteristicvaluechanged', handler);
+        cleanup();
         resolve(null);
       }, timeout);
 
       const handler = (event: any) => {
-        clearTimeout(timer);
-        this.notifyChar.removeEventListener('characteristicvaluechanged', handler);
+        cleanup();
         const data = new Uint8Array(event.target.value.buffer);
         trace('[BLE Response]', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
         resolve(event.target.value);
       };
 
-      this.notifyChar.addEventListener('characteristicvaluechanged', handler);
+      ch.addEventListener('characteristicvaluechanged', handler);
     });
   }
 
@@ -499,10 +525,10 @@ export class BLETransport {
   /**
    * Check if connected and ready to send data
    */
-  isConnected() {
-    return this.connected &&
+  isConnected(): boolean {
+    return !!(this.connected &&
            this.device?.gatt?.connected &&
-           this.writeChar !== null;
+           this.writeChar !== null);
   }
 
   /**
@@ -517,7 +543,8 @@ export class BLETransport {
    * Response format: 0x1A, type, data...
    */
   handleNotification(event: any) {
-    const data = new Uint8Array(event.target.value.buffer);
+    const v = event.target.value;
+    const data = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
     trace('[BLE <<<]', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
 
     if (data.length < 2) return;

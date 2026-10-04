@@ -238,7 +238,7 @@ async function afterConnect(type: 'ble' | 'usb', deviceName: string): Promise<vo
 
   if (type === 'ble') {
     transport.onPrinterInfo = (_field: string, _value: unknown, info: Record<string, unknown>) => st().setPrinterInfo({ ...(info as object) } as never);
-    setTimeout(() => void transport.queryAll?.().catch(() => {}), 500);
+    setTimeout(() => void transport?.queryAll?.().catch(() => {}), 500);
     // Battery is the one field worth re-reading: it is the only reading that goes stale on its own
     // while the printer sits idle. The rest change only when you touch the hardware, and they
     // arrive as events when they do.
@@ -261,6 +261,10 @@ export async function disconnectPrinter(): Promise<void> {
     st().setConn({ connected: false, type: null, deviceName: '', status: 'disconnected', error: null });
     st().setPrinterInfo(null);
     st().applyPrinterFamily();
+    // The async 'gattserverdisconnected' event may fire after this function returns and
+    // set droppedByItself = true. Reset it here so a user-initiated disconnect is never
+    // misinterpreted as a spontaneous drop.
+    droppedByItself = false;
   }
 }
 
@@ -362,8 +366,8 @@ export async function printCurrent(): Promise<boolean> {
     const base = evaluateExpressions(elements);
     const merged = templateData.length ? substituteFields(base, templateData[0]) : base;
     // Settings come from localStorage and are not validated on load, so a corrupt value must not
-    // silently print nothing and then report success.
-    const copies = Math.max(1, Math.floor(settings.copies) || 1);
+    // silently print nothing and then report success. Clamp to the app's limits.
+    const copies = Math.min(99, Math.max(1, Math.floor(settings.copies) || 1));
 
     st().setPrint({ active: true, label: tr('printing'), current: 0, total: copies, sub: '' });
     const raster = await rasterFor(merged);
@@ -444,6 +448,13 @@ export async function printBatch(recordIndexes: number[], signal: AbortSignal): 
     st().toast(tr('printedN', { n: recordIndexes.length }), 'success');
     return true;
   } catch (e) {
+    // A cancel that lands mid-label surfaces as an AbortError from runOps. It is what
+    // the user asked for, so it is reported as a cancel rather than as a failure —
+    // the same handling as printCurrent().
+    if ((e as Error)?.name === 'AbortError') {
+      st().toast(tr('printCancelled'));
+      return false;
+    }
     st().toast(`${tr('printFailed')}: ${(e as Error).message}`, 'error');
     return false;
   } finally {

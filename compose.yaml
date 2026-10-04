@@ -22,3 +22,17 @@ services:
         required: false
     environment:
       - TZ=UTC
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /var/cache/nginx:size=10m
+      - /var/run:size=1m
+      - /etc/nginx/conf.d:size=1m
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'

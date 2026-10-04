@@ -4,14 +4,18 @@
 
 import { trace } from '../core/trace';
 
-// Known USB IDs for Phomemo printers
+// Known USB IDs for Phomemo printers.
+// Vendor-only filters (e.g. { vendorId: 0x0483 }) are intentionally omitted: 0x0483 is
+// STMicroelectronics, whose ID is used by a huge number of unrelated devices (ST-Link
+// programmers, microcontroller boards, CDC gadgets). Filtering on classCode 7 (printer)
+// is the safe catch-all — it matches any printer-class device without opening non-printers.
 const USB_DEVICE_FILTERS = [
   // Standard Phomemo printers (M110, M220, etc.)
   { vendorId: 0x0483, productId: 0x5740 },
-  { vendorId: 0x0483 }, // Any device from this vendor
   // PM-241 shipping label printer
   { vendorId: 0x2e3c, productId: 0x5750 },
-  { vendorId: 0x2e3c }, // Any device from this vendor
+  // Any printer-class device (classCode 7)
+  { classCode: 7 },
 ];
 
 // Chunk size and delay for USB transfers
@@ -32,6 +36,7 @@ export class USBTransport {
   endpointOut: any;
   interfaceNumber: any;
   _endpointNumber: any;
+  _usbDisconnectHandler: ((event: any) => void) | null = null;
 
   constructor() {
     this.device = null;
@@ -73,11 +78,9 @@ export class USBTransport {
       const devices = await navigator.usb.getDevices();
       trace('Found authorized USB devices:', devices.length);
 
-      // Get known vendor IDs from filter list
-      const knownVendorIds = [...new Set(USB_DEVICE_FILTERS.map(f => f.vendorId))];
-
       for (const device of devices) {
-        if (knownVendorIds.includes(device.vendorId)) {
+        // Check if this device matches our filters (vendor+product or printer class)
+        if (this._matchesFilters(device)) {
           trace('Found authorized Phomemo device:', device.productName);
           try {
             await this.connectToDevice(device);
@@ -91,6 +94,27 @@ export class USBTransport {
       trace('getDevices failed:', e.message);
     }
 
+    return false;
+  }
+
+  /**
+   * Check if a device matches our USB filters (vendor+product or printer class).
+   */
+  _matchesFilters(device: any): boolean {
+    for (const f of USB_DEVICE_FILTERS) {
+      if (f.classCode !== undefined) {
+        // Printer-class filter: check the device's interface class
+        if (device.configuration?.interfaces) {
+          for (const iface of device.configuration.interfaces) {
+            for (const alt of iface.alternates) {
+              if (alt.interfaceClass === f.classCode) return true;
+            }
+          }
+        }
+      } else if (f.vendorId !== undefined && f.productId !== undefined) {
+        if (device.vendorId === f.vendorId && device.productId === f.productId) return true;
+      }
+    }
     return false;
   }
 
@@ -139,33 +163,57 @@ export class USBTransport {
       await this.device.selectConfiguration(1);
     }
 
-    // Find and claim printer interface
-    let interfaceNum = 0;
+    // Find and claim printer interface.
+    // Remember the interface object itself — indexing by interfaceNumber into the
+    // interfaces array is wrong on composite devices (number ≠ array position).
+    let printerIface: any = null;
     for (const iface of this.device.configuration.interfaces) {
       for (const alt of iface.alternates) {
         if (alt.interfaceClass === 7) { // Printer class
-          interfaceNum = iface.interfaceNumber;
+          printerIface = iface;
           break;
         }
       }
+      if (printerIface) break;
     }
 
-    await this.device.claimInterface(interfaceNum);
-    trace(`Claimed interface ${interfaceNum}`);
+    if (!printerIface) {
+      await this.device.close();
+      this.device = null;
+      throw new Error('No printer-class interface found');
+    }
 
-    // Find OUT endpoint
-    const iface = this.device.configuration.interfaces[interfaceNum];
-    for (const alt of iface.alternates) {
+    await this.device.claimInterface(printerIface.interfaceNumber);
+    trace(`Claimed interface ${printerIface.interfaceNumber}`);
+
+    // Find OUT endpoint on the same interface object
+    for (const alt of printerIface.alternates) {
       for (const endpoint of alt.endpoints) {
         if (endpoint.direction === 'out') {
           this.endpointOut = endpoint.endpointNumber;
           break;
         }
       }
+      if (this.endpointOut) break;
     }
 
     if (!this.endpointOut) {
+      await this.device.close();
+      this.device = null;
       throw new Error('No OUT endpoint found');
+    }
+
+    // Listen for USB disconnect (cable pulled, device powered off)
+    if (typeof navigator !== 'undefined' && navigator.usb?.addEventListener) {
+      navigator.usb.addEventListener('disconnect', this._usbDisconnectHandler = (event: any) => {
+        if (event.device === this.device) {
+          trace('USB device disconnected');
+          this.connected = false;
+          this.device = null;
+          this.endpointOut = null;
+          if (this.onDisconnect) this.onDisconnect();
+        }
+      });
     }
 
     this.connected = true;
@@ -176,6 +224,10 @@ export class USBTransport {
    * Disconnect from device
    */
   async disconnect() {
+    if (this._usbDisconnectHandler && typeof navigator !== 'undefined' && navigator.usb?.removeEventListener) {
+      navigator.usb.removeEventListener('disconnect', this._usbDisconnectHandler);
+      this._usbDisconnectHandler = null;
+    }
     if (this.device) {
       try {
         await this.device.close();
@@ -197,7 +249,21 @@ export class USBTransport {
     }
 
     const buffer = data instanceof Uint8Array ? data : new Uint8Array(data);
-    await this.device.transferOut(this.endpointOut, buffer);
+    const result = await this.device.transferOut(this.endpointOut, buffer);
+
+    if (result.status !== 'ok' || result.bytesWritten !== buffer.length) {
+      // On 'stall', try clearing the endpoint and retrying once before giving up.
+      if (result.status === 'stall') {
+        try {
+          await this.device.clearHalt('out', this.endpointOut);
+          const retry = await this.device.transferOut(this.endpointOut, buffer);
+          if (retry.status === 'ok' && retry.bytesWritten === buffer.length) return;
+        } catch {
+          // fall through to throw
+        }
+      }
+      throw new Error(`USB transfer failed: status=${result.status}, bytesWritten=${result.bytesWritten}/${buffer.length}`);
+    }
   }
 
   /**
@@ -230,8 +296,8 @@ export class USBTransport {
   /**
    * Check if connected
    */
-  isConnected() {
-    return this.connected;
+  isConnected(): boolean {
+    return this.connected && !!this.device?.opened;
   }
 
   /**

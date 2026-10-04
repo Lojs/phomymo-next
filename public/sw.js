@@ -19,7 +19,11 @@ const SHELL_URLS = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
 
 /** Hashed by Vite, so a given name always means the same bytes. */
 const isImmutableAsset = (url) =>
-  url.pathname.startsWith('/assets/') || url.pathname.startsWith('/icons/');
+  url.pathname.startsWith('/assets/');
+
+/** Icons are NOT content-hashed, so they need revalidation. */
+const isIcon = (url) =>
+  url.pathname.startsWith('/icons/');
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -49,9 +53,27 @@ self.addEventListener('fetch', (event) => {
         const hit = await cache.match(request);
         if (hit) return hit;
         const fresh = await fetch(request);
-        if (fresh.ok) cache.put(request, fresh.clone());
+        if (fresh.ok) {
+          event.waitUntil(cache.put(request, fresh.clone()));
+        }
         return fresh;
       }),
+    );
+    return;
+  }
+
+  if (isIcon(url)) {
+    // Icons are not content-hashed, so use network-first with cache fallback.
+    event.respondWith(
+      fetch(request)
+        .then((fresh) => {
+          if (fresh.ok) {
+            const copy = fresh.clone();
+            caches.open(ASSETS).then((cache) => cache.put(request, copy));
+          }
+          return fresh;
+        })
+        .catch(async () => (await caches.match(request)) ?? Response.error()),
     );
     return;
   }

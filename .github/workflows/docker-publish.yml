@@ -6,7 +6,12 @@ on:
   push:
     branches: ["main"]
     tags: ["v*.*.*"]
+  pull_request:
+    branches: ["main"]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
   REGISTRY: ghcr.io
@@ -35,8 +40,8 @@ jobs:
       - name: التحقق من الأنواع
         run: npm run typecheck
 
-      - name: تشغيل الاختبارات
-        run: npm test
+      - name: تشغيل الاختبارات مع تغطية
+        run: npm run test:ci
 
       - name: بناء الإنتاج
         run: npm run build
