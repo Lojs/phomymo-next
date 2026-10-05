@@ -8,6 +8,45 @@ actually does now.
 The commits are the source of truth for anything more granular. Commit messages in this repository
 carry the reasoning in full; this file is the index.
 
+## 1.0.22
+
+### Fixed
+- **Printed text came out speckled, hollow and fuzzy while the same design looked clean on screen.**
+  Two independent causes, both measured on the raster that reaches the printer before either was
+  changed:
+  - The print path asked for the `auto` dithering mode, and the ported `shouldUseDithering`
+    heuristic answers "yes, dither" for any artwork with more than 50 distinct colours. Antialiased
+    glyph edges supply 199, so **every text label was being halftoned like a photograph**. Error
+    diffusion scatters those soft edges: a text-only label produced **453 isolated single dots**,
+    where a plain threshold produces none, with eroded interiors to match. Text, barcodes and
+    shapes are line art and are now thresholded; dithering stays available the moment the label
+    actually contains an image. The `shouldUseDithering` function itself is untouched — it is a
+    faithful port of the original and `tests/golden-raster-templates.test.ts` pins it bit-for-bit.
+  - A **300 DPI head was fed 203 DPI artwork interpolated up.** Every coordinate in the app is on
+    an 8 px/mm (203 DPI) grid, so the label was rendered at 203 DPI and the finished bitmap was
+    then resampled to 300. Measured on a 53 mm M02 Pro label, **6954 of ~8855 ink dots landed on a
+    different dot** than a native render, and glyph edges came out rounded and wavy — interpolation
+    cannot invent detail the original render never had. High-DPI heads are now rendered at their
+    own resolution. The artwork's pixel dimensions are unchanged either way, so nothing downstream
+    — byte counts, row counts, the encoder — can shift because of this.
+
+### Notes
+- Verified on the real pipeline in a browser, not by inspection: the corrected raster for a
+  text-only label on an M02 Pro measures 0 isolated dots, and 300 DPI output is produced from a
+  single canvas instead of three.
+- If your printer is 203 DPI (T02, M03), only the first fix applies to you — and it is the larger
+  of the two. On a 300 DPI head (M02 Pro, M04S) both apply.
+- A printed barcode was unaffected throughout: its bars are solid black with hard, axis-aligned
+  edges, and error diffusion leaves solid regions solid. Only thin antialiased strokes — Arabic
+  text in particular — were damaged.
+
+## 1.0.21
+
+### Removed
+- Dependabot. It opened a branch and a pull request for every GitHub Action; the repository keeps a
+  single branch instead. The Actions stay pinned to the commit SHAs recorded as comments in the
+  workflow, and `scripts/resolve-action-sha.mjs` re-resolves them by hand.
+
 ## 1.0.20
 
 ### Added

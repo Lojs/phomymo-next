@@ -351,10 +351,26 @@ export function currentTarget(): { cfg: ResolvedConfig; target: RasterTarget } {
   };
 }
 
-/** TSPL printers need crisp barcodes: force threshold when the label leaves dithering on auto. */
-function modeFor(elements: LabelElement[], cfg: ResolvedConfig): DitherMode {
+/**
+ * Which binarisation the artwork needs.
+ *
+ * `auto` means "decide from the artwork", and the only artwork that wants halftoning is a
+ * photograph. Text, barcodes and shapes are line art: error-diffusing them scatters their edges
+ * into isolated dots and eats the inside of thick strokes, which is what made printed labels look
+ * speckled and hollow. Measured on a text-only label, dithering left 453 isolated dots that
+ * thresholding does not produce at all.
+ *
+ * `shouldUseDithering` cannot make this call: it tests for photo-like tone, and antialiased glyph
+ * edges hand it hundreds of distinct greys — well past its 50-colour threshold — so it answers
+ * "yes, dither" for plain text. The caller knows whether an image is present; the pure function
+ * does not. So the decision lives here, and the ported heuristic keeps its bit-identical
+ * behaviour for the callers that genuinely have a picture.
+ */
+export function modeFor(elements: LabelElement[], cfg: ResolvedConfig): DitherMode {
   const m = ditherModeOf(elements);
-  return m === 'auto' && isTspl(cfg) ? 'threshold' : m;
+  if (m !== 'auto') return m;                                   // an element asked for one by name
+  if (isTspl(cfg)) return 'threshold';                          // TSPL printers need crisp barcodes
+  return elements.some((e) => e.type === 'image') ? 'auto' : 'threshold';
 }
 
 export async function rasterFor(elements: LabelElement[]): Promise<Raster> {
