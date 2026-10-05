@@ -41,9 +41,8 @@ export function Button({ icon, children, variant = 'default', active, ...p }: {
  */
 export function MenuButton({ label, items, onPick, layout = 'list', icon }: {
   label: string;
-  /** `thumb: null` means "this item has a thumbnail that is not ready yet" — the row then holds
-   *  its height instead of reflowing when the picture arrives. `undefined` means no thumbnail. */
-  items: { value: string; label: string; icon?: IconName; thumb?: string | null; hint?: string }[];
+  /** `hint` is a second, dimmer line under the label — the algorithm's real name beside the plain one. */
+  items: { value: string; label: string; icon?: IconName; hint?: string }[];
   onPick: (value: string) => void;
   /** `grid` lays the items out two-per-row, for palettes too long to read as one column. */
   layout?: 'list' | 'grid';
@@ -80,19 +79,12 @@ export function MenuButton({ label, items, onPick, layout = 'list', icon }: {
       {open && (
         <div
           ref={menuRef}
-          className={`menu ${layout === 'grid' ? 'menu-shapes' : items.some((i) => i.thumb !== undefined) ? 'menu-picker' : 'menu-field'}${flip ? ' menu-up' : ''}`}
+          className={`menu ${layout === 'grid' ? 'menu-shapes' : 'menu-field'}${flip ? ' menu-up' : ''}`}
           role="menu"
         >
           {items.map((it) => (
             <button key={it.value} role="menuitem" onClick={() => { setOpen(false); onPick(it.value); }}>
-              {/* A thumbnail is a picture of the *result*, which is the only way to choose between
-                  four dot patterns without trying all four on paper. The hint keeps the algorithm
-                  name for anyone who wants it, without making it the thing you have to understand. */}
-              {it.thumb === undefined
-                ? it.icon && <Icon name={it.icon} size={16} />
-                : it.thumb === null
-                  ? <span className="menu-thumb menu-thumb-blank" aria-hidden="true" />
-                  : <img className="menu-thumb" src={it.thumb} alt="" width={52} height={34} />}
+              {it.icon && <Icon name={it.icon} size={16} />}
               <span className="menu-text">
                 {it.label}
                 {it.hint && <span className="menu-hint">{it.hint}</span>}

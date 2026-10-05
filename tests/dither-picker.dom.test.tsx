@@ -4,15 +4,10 @@
  *
  * Choosing how a photograph is turned into 1-bit dots used to mean reading four algorithm names
  * ("Ordered (Bayer)", "Floyd–Steinberg") and guessing which one suited a photo. The picker now
- * names each choice for what it does, keeps the algorithm name beside it, and shows a picture of
- * the result.
+ * names each choice for what it does and keeps the algorithm name as a hint beside it.
  *
- * jsdom's canvas stub discards every drawing call and never loads an image, so the *content* of a
- * thumbnail cannot be asserted here — it would be blank regardless of the mode. What is asserted
- * is the part that decides behaviour: that the four choices exist and are named, that the trigger
- * reports what will actually print, that picking one reaches the store, and that a menu item with a
- * thumbnail is laid out as one. The thumbnail's own pixels come from `pixelsToRaster`, which
- * `tests/golden-raster-templates.test.ts` pins bit-for-bit against the original implementation.
+ * It is deliberately **text only**: an earlier version put a dithered thumbnail of the image on
+ * every row, and the user asked for that to be removed. The test that pins this is "is text only".
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
@@ -27,6 +22,8 @@ beforeEach(() => {
   useStore.setState({ lang: 'en', past: [], future: [], selectedIds: [] });
 });
 
+afterEach(() => vi.restoreAllMocks());
+
 /** Put one image in the store and select it. */
 function withImage(dither?: 'none' | 'ordered' | 'atkinson' | 'floyd-steinberg') {
   const el = createImage('data:image/png;base64,AAAA', dither ? { dither } : {});
@@ -35,7 +32,9 @@ function withImage(dither?: 'none' | 'ordered' | 'atkinson' | 'floyd-steinberg')
   return el;
 }
 
-const openPicker = () => fireEvent.click(screen.getByRole('button', { name: /Grayscale 256|Standard|Light dots|Black & white|قياسي|تدرّج|نقاط|أبيض/ }));
+const pickerButton = () =>
+  screen.getByRole('button', { name: /Grayscale 256|Standard|Light dots|Black & white|تدرّج|قياسي|نقاط|أبيض/ });
+const openPicker = () => fireEvent.click(pickerButton());
 
 describe('the picker offers plain-language choices', () => {
   it('lists all four, each with the algorithm name beside it', () => {
@@ -62,8 +61,16 @@ describe('the picker offers plain-language choices', () => {
     withImage();
     render(<ElementPanel />);
     openPicker();
-    const items = screen.getAllByRole('menuitem');
-    expect(items[0].textContent).toContain('Grayscale 256');
+    expect(screen.getAllByRole('menuitem')[0].textContent).toContain('Grayscale 256');
+  });
+
+  it('is text only — no picture on any row', () => {
+    // The user asked for the previews to go, so the menu must carry text and nothing else.
+    withImage();
+    const { container } = render(<ElementPanel />);
+    openPicker();
+    expect(container.querySelectorAll('.menu [role="menuitem"] img')).toHaveLength(0);
+    expect(container.querySelectorAll('.menu-thumb, .menu-thumb-blank')).toHaveLength(0);
   });
 });
 
@@ -73,13 +80,13 @@ describe('the trigger reports what will print', () => {
     // button must say Grayscale 256 — showing "None" here would be a lie about the output.
     withImage();
     render(<ElementPanel />);
-    expect(screen.getByRole('button', { name: /Grayscale 256/ })).toBeTruthy();
+    expect(pickerButton().textContent).toContain('Grayscale 256');
   });
 
   it('follows the element once it has chosen', () => {
     withImage('ordered');
     render(<ElementPanel />);
-    expect(screen.getByRole('button', { name: /Standard/ })).toBeTruthy();
+    expect(pickerButton().textContent).toContain('Standard');
   });
 });
 
@@ -103,85 +110,6 @@ describe('picking a choice reaches the element', () => {
   });
 });
 
-describe('a picker item is laid out as a thumbnail item', () => {
-  it('reserves the image slot even before the picture is ready', () => {
-    // jsdom never fires the image's onload, so this is the pre-load state: the row must still be
-    // sized for a thumbnail rather than rendering an icon and reflowing when the picture arrives.
-    withImage();
-    const { container } = render(<ElementPanel />);
-    openPicker();
-    expect(container.querySelectorAll('.menu-thumb-blank')).toHaveLength(4);
-  });
-
-  it('renders the picture, not the icon, when a thumbnail is supplied', () => {
-    const { container } = render(
-      <MenuButton
-        label="Dithering"
-        items={[{ value: 'none', label: 'Black & white', icon: 'image', thumb: 'data:image/png;base64,AA', hint: 'threshold' }]}
-        onPick={() => {}}
-      />,
-    );
-    fireEvent.click(screen.getByRole('button'));
-    expect(container.querySelector('img.menu-thumb')).toBeTruthy();
-    expect(container.querySelector('.menu-hint')?.textContent).toBe('threshold');
-  });
-
-  it('still renders an icon and a plain label for the menus that have no thumbnails', () => {
-    // The connect and shapes menus share this component; the thumbnail must stay optional.
-    const { container } = render(
-      <MenuButton label="Shapes" items={[{ value: 'circle', label: 'Circle', icon: 'image' }]} onPick={() => {}} />,
-    );
-    fireEvent.click(screen.getByRole('button'));
-    expect(container.querySelector('img.menu-thumb')).toBeNull();
-    expect(container.querySelector('.menu-thumb-blank')).toBeNull();
-    expect(screen.getByRole('menuitem', { name: /Circle/ })).toBeTruthy();
-  });
-});
-
-
-describe('the thumbnails are generated from the image itself', () => {
-  /** jsdom never loads an image, so the load is driven by hand; the canvas stub then returns blank
-   *  pixels, which is fine here — this asserts the wiring, and the pixels are pinned elsewhere. */
-  class FakeImage {
-    naturalWidth = 100;
-    naturalHeight = 80;
-    onload: (() => void) | null = null;
-    set src(_v: string) { queueMicrotask(() => this.onload?.()); }
-  }
-  const RealImage = globalThis.Image;
-
-  afterEach(() => { (globalThis as { Image: unknown }).Image = RealImage; vi.restoreAllMocks(); });
-
-  it('swaps the placeholder for a picture once the image has loaded', async () => {
-    (globalThis as { Image: unknown }).Image = FakeImage;
-    withImage();
-    const { container } = render(<ElementPanel />);
-    openPicker();
-    await waitFor(() => expect(container.querySelectorAll('img.menu-thumb')).toHaveLength(4));
-    expect(container.querySelectorAll('.menu-thumb-blank')).toHaveLength(0);
-  });
-
-  it('keeps the picker usable when a thumbnail cannot be exported', async () => {
-    // A canvas that has drawn cross-origin content throws from toDataURL. The menu must still open,
-    // still list the choices, and still write the choice — the picture is an aid, not the control.
-    (globalThis as { Image: unknown }).Image = FakeImage;
-    const realCreate = document.createElement.bind(document);
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
-      const el = realCreate(tag);
-      if (tag === 'canvas') (el as HTMLCanvasElement).toDataURL = () => { throw new Error('tainted'); };
-      return el;
-    });
-    const el = withImage();
-    const { container } = render(<ElementPanel />);
-    openPicker();
-    await waitFor(() => expect(container.querySelectorAll('.menu-thumb-blank')).toHaveLength(4));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Standard/ }));
-    const saved = useStore.getState().elements.find((e) => e.id === el.id) as { dither?: string };
-    expect(saved.dither).toBe('ordered');
-  });
-});
-
-
 describe('the menu stays reachable in a short window', () => {
   /** Drive the geometry by hand: jsdom reports every rect as zero, so nothing would ever flip. */
   function stubRects(triggerTop: number) {
@@ -195,14 +123,14 @@ describe('the menu stays reachable in a short window', () => {
   }
 
   it('opens upward when it would fall off the bottom', async () => {
-    // Measured for real: with the trigger at y=403 in a 577px window the 210px menu ended at 613
-    // and the fourth option could not be clicked at all. A native <select> is repositioned by the
-    // browser; this popup has to reposition itself.
+    // Measured for real: with the trigger at y=403 in a 577px window the menu ended at 613 and its
+    // last option could not be clicked at all. A native <select> is repositioned by the browser;
+    // this popup has to reposition itself.
     stubRects(700);          // 700 + 36 + 210 = 946, past the 768px window
     withImage();
     const { container } = render(<ElementPanel />);
     openPicker();
-    await waitFor(() => expect(container.querySelector('.menu-picker')?.classList.contains('menu-up')).toBe(true));
+    await waitFor(() => expect(container.querySelector('.menu')?.classList.contains('menu-up')).toBe(true));
   });
 
   it('opens downward when there is room', async () => {
@@ -210,8 +138,27 @@ describe('the menu stays reachable in a short window', () => {
     withImage();
     const { container } = render(<ElementPanel />);
     openPicker();
-    await waitFor(() => expect(container.querySelector('.menu-picker')).toBeTruthy());
-    expect(container.querySelector('.menu-picker')?.classList.contains('menu-up')).toBe(false);
+    await waitFor(() => expect(container.querySelector('.menu')).toBeTruthy());
+    expect(container.querySelector('.menu')?.classList.contains('menu-up')).toBe(false);
+  });
+});
+
+describe('the shared menu still works for its other callers', () => {
+  it('renders an icon and a plain label when there is no hint', () => {
+    const { container } = render(
+      <MenuButton label="Shapes" items={[{ value: 'circle', label: 'Circle', icon: 'image' }]} onPick={() => {}} />,
+    );
+    fireEvent.click(screen.getByRole('button'));
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByRole('menuitem', { name: /Circle/ })).toBeTruthy();
+  });
+
+  it('renders the hint under the label when one is given', () => {
+    const { container } = render(
+      <MenuButton label="Dithering" items={[{ value: 'none', label: 'Black & white', hint: 'threshold' }]} onPick={() => {}} />,
+    );
+    fireEvent.click(screen.getByRole('button'));
+    expect(container.querySelector('.menu-hint')?.textContent).toBe('threshold');
   });
 });
 
@@ -220,7 +167,7 @@ describe('the Arabic interface names the choices too', () => {
     useStore.setState({ lang: 'ar' });
     withImage();
     render(<ElementPanel />);
-    fireEvent.click(screen.getByRole('button', { name: /تدرّج|قياسي|نقاط|أبيض/ }));
+    openPicker();
     expect(screen.getByRole('menuitem', { name: /تدرّج رمادي 256/ })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: /Floyd–Steinberg/ })).toBeTruthy();
   });

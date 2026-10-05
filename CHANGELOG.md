@@ -18,9 +18,8 @@ carry the reasoning in full; this file is the index.
   meant for a photo first), each with its algorithm name kept as a small hint beside it so nothing
   is lost. The trigger names the mode that will actually print: an image with no explicit choice
   prints as Floyd–Steinberg, so it reads "Grayscale 256" rather than "None".
-- Each choice carries a **52×34 preview of your own image**, dithered with that mode. The thumbnail
-  is produced by the same 1-bit rasteriser the printer uses, with the element's brightness and
-  contrast applied, so it is the print rather than an impression of it.
+- The list is **text only**. A 52×34 preview of the image was added to every row and then removed
+  at the user's request, so the algorithm name hint is the only second line.
 
 ### Fixed
 - **A menu opened by a control low in a short window could render its last rows below the viewport
