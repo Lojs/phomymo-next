@@ -78,6 +78,12 @@ export function rasterScale(dpi: number): number {
  * @param scale - render at `scale`x the layout's pixel size. The layout and the elements stay in
  *   label pixels; the context is scaled instead, so everything that has no coordinate of its own —
  *   stroke widths, corner radii, barcode module sizes, image resampling — scales with it.
+ *
+ * Images are drawn already binarised (`ditherImages`). The composite is thresholded as a whole
+ * afterwards, so anything still in continuous tone at that point would pull the text beside it into
+ * a dither the text does not want — a logo plus a line of Arabic used to speckle the Arabic. Each
+ * image is resolved by its own rule first, and a pixel that is already black or white passes the
+ * threshold unchanged.
  */
 export function renderPixels(elements: LabelElement[], layout: LabelLayout, scale = 1): PixelBuffer {
   const width = Math.round(layout.width * scale);
@@ -89,7 +95,7 @@ export function renderPixels(elements: LabelElement[], layout: LabelLayout, scal
   const ctx = cv.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('Could not get a 2D canvas context');
   if (scale !== 1) ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  paintLabel(ctx, elements, layout);
+  paintLabel(ctx, elements, layout, { ditherImages: true });
   return { pixels: ctx.getImageData(0, 0, width, height).data, width, height };
 }
 
@@ -129,12 +135,6 @@ export function buildRaster(elements: LabelElement[], layout: LabelLayout, targe
 
   const align: RasterAlignment = target.alignment;
   return { data: pixelsToRaster(pixels, width, height, target.widthBytes, align, mode), widthBytes: target.widthBytes, heightLines: height };
-}
-
-/** Dither mode of a label: taken from the first image that sets one, otherwise 'auto'. */
-export function ditherModeOf(elements: LabelElement[]): DitherMode {
-  for (const el of elements) if (el.type === 'image' && el.dither) return el.dither;
-  return 'auto';
 }
 
 /**

@@ -8,7 +8,7 @@
  * unpadded raster for the protocol layer to rotate.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { paintLabel, renderPixels, buildRaster, ditherModeOf, prepareForRender, previewCanvas } from '../src/core/render/label';
+import { paintLabel, renderPixels, buildRaster, prepareForRender, previewCanvas } from '../src/core/render/label';
 import { singleLayout, multiLayout, displayLayout, needsPrintRotation } from '../src/core/render/layout';
 import { createText, createShape, createImage } from '../src/core/model/elements';
 import type { RasterTarget } from '../src/core/render/label';
@@ -215,22 +215,6 @@ describe('buildRaster — the printer-facing result', () => {
       createImage('data:image/png;base64,AAAA'),
     ];
     expect(() => buildRaster(els, layout(), target(), 'none')).not.toThrow();
-  });
-});
-
-describe('ditherModeOf', () => {
-  it('is "auto" when no image sets a mode', () => {
-    expect(ditherModeOf([createText('A')])).toBe('auto');
-  });
-
-  it('takes the mode from the first image that sets one', () => {
-    const a = createImage('data:image/png;base64,AAAA', { dither: 'atkinson' });
-    const b = createImage('data:image/png;base64,BBBB', { dither: 'ordered' });
-    expect(ditherModeOf([a, b])).toBe('atkinson');
-  });
-
-  it('ignores an image that leaves the mode unset', () => {
-    expect(ditherModeOf([createImage('data:image/png;base64,AAAA')])).toBe('auto');
   });
 });
 

@@ -3,7 +3,15 @@
  * so designs saved by the old app import unchanged.
  */
 export type ElementType = 'text' | 'image' | 'barcode' | 'qr' | 'shape';
-export type DitherChoice = 'none' | 'ordered' | 'atkinson' | 'floyd-steinberg';
+/**
+ * How an image is turned into dots.
+ *
+ * 'auto' is a real, selectable value, not just the absence of one: it means "decide from this
+ * image", and the decision is made per image at render time — error diffusion for a photograph,
+ * a plain threshold for flat art. Keeping it in the type is what lets the picker say so instead of
+ * naming a mode that may not be the one used.
+ */
+export type DitherChoice = 'auto' | 'none' | 'ordered' | 'atkinson' | 'floyd-steinberg';
 export type BarcodeFormat = 'CODE128' | 'EAN13' | 'CODE39' | 'UPC';
 export type ShapeType =
   | 'rectangle' | 'ellipse' | 'triangle' | 'line'

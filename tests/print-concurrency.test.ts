@@ -32,7 +32,6 @@ vi.mock('../src/transport/ble', () => ({
 // thing under test is job scheduling, not pixel output.
 vi.mock('../src/core/render/label', () => ({
   prepareForRender: async () => {},
-  ditherModeOf: () => 'none' as const,
   buildRaster: () => ({
     // All-zero data, distinct from the density test's 0xFF strips.
     data: new Uint8Array(48 * 300),

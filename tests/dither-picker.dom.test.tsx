@@ -33,14 +33,15 @@ function withImage(dither?: 'none' | 'ordered' | 'atkinson' | 'floyd-steinberg')
 }
 
 const pickerButton = () =>
-  screen.getByRole('button', { name: /Grayscale 256|Standard|Light dots|Black & white|تدرّج|قياسي|نقاط|أبيض/ });
+  screen.getByRole('button', { name: /Automatic|Grayscale 256|Standard|Light dots|Black & white|تلقائي|تدرّج|قياسي|نقاط|أبيض/ });
 const openPicker = () => fireEvent.click(pickerButton());
 
 describe('the picker offers plain-language choices', () => {
-  it('lists all four, each with the algorithm name beside it', () => {
+  it('lists all five, each with the algorithm name beside it', () => {
     withImage();
     render(<ElementPanel />);
     openPicker();
+    expect(screen.getByRole('menuitem', { name: /Automatic/ })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: /Grayscale 256/ })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: /Standard/ })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: /Light dots/ })).toBeTruthy();
@@ -57,11 +58,13 @@ describe('the picker offers plain-language choices', () => {
     expect(screen.getByRole('menuitem', { name: /Atkinson/ })).toBeTruthy();
   });
 
-  it('puts the one meant for a photograph first', () => {
+  it('puts Automatic first, then the one meant for a photograph', () => {
     withImage();
     render(<ElementPanel />);
     openPicker();
-    expect(screen.getAllByRole('menuitem')[0].textContent).toContain('Grayscale 256');
+    const items = screen.getAllByRole('menuitem');
+    expect(items[0].textContent).toContain('Automatic');
+    expect(items[1].textContent).toContain('Grayscale 256');
   });
 
   it('is text only — no picture on any row', () => {
@@ -75,10 +78,17 @@ describe('the picker offers plain-language choices', () => {
 });
 
 describe('the trigger reports what will print', () => {
-  it('names the tonal choice when the element has not chosen', () => {
-    // The element carries no dither, and 'auto' resolves to Floyd–Steinberg for a photo, so the
-    // button must say Grayscale 256 — showing "None" here would be a lie about the output.
+  it('says Automatic when the element has not chosen', () => {
+    // It must not name one of the four modes. An unset choice is resolved from the image, so a flat
+    // logo would print as Black & white while the button claimed Grayscale 256 — a statement about
+    // the setting is honest, a guess about the picture is not.
     withImage();
+    render(<ElementPanel />);
+    expect(pickerButton().textContent).toContain('Automatic');
+  });
+
+  it('still names the mode once the element has been given one', () => {
+    withImage('floyd-steinberg');
     render(<ElementPanel />);
     expect(pickerButton().textContent).toContain('Grayscale 256');
   });
@@ -168,6 +178,7 @@ describe('the Arabic interface names the choices too', () => {
     withImage();
     render(<ElementPanel />);
     openPicker();
+    expect(screen.getByRole('menuitem', { name: /تلقائي/ })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: /تدرّج رمادي 256/ })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: /Floyd–Steinberg/ })).toBeTruthy();
   });

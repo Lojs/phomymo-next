@@ -4,9 +4,9 @@
  */
 import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
-import type { BarcodeElement, ImageElement, LabelElement, QRElement, ShapeElement, TextElement } from '../model/elements';
+import type { BarcodeElement, DitherChoice, ImageElement, LabelElement, QRElement, ShapeElement, TextElement } from '../model/elements';
 import { getImage } from './images';
-import { pixelsToRaster, rgbaToGrayscale, floydSteinberg, atkinson, ordered, thresholdGray } from '../raster/raster';
+import { pixelsToRaster, rgbaToGrayscale, floydSteinberg, atkinson, ordered, thresholdGray, shouldUseDithering } from '../raster/raster';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -156,11 +156,24 @@ export function imageFilterString(el: ImageElement): string | null {
 
 const ditherCache = new Map<string, HTMLCanvasElement>();
 
+/**
+ * The mode an image is actually binarised with.
+ *
+ * `undefined` and 'auto' both mean "decide from this image": the ported heuristic picks error
+ * diffusion for a photograph and a plain threshold for flat art. The decision has to be made here,
+ * per image, because the composite raster is binarised as a whole — an image still in continuous
+ * tone at that point would drag the text beside it into a dither the text does not want. Binarising
+ * the image first is what lets a logo and a line of Arabic share a label without either suffering.
+ */
+export function resolveImageMode(px: Uint8ClampedArray, w: number, h: number, declared: DitherChoice | undefined): DitherChoice {
+  if (declared && declared !== 'auto') return declared;
+  return shouldUseDithering(px, w, h) ? 'floyd-steinberg' : 'none';
+}
+
 function ditherPreview(img: HTMLImageElement, el: ImageElement): HTMLCanvasElement {
   const w = Math.max(1, Math.round(el.width));
   const h = Math.max(1, Math.round(el.height));
-  const mode = el.dither || 'floyd-steinberg';
-  const key = `${el.id}|${el.imageData.length}|${w}|${h}|${mode}|${el.brightness || 0}|${el.contrast || 0}`;
+  const key = `${el.id}|${el.imageData.length}|${w}|${h}|${el.dither ?? 'auto'}|${el.brightness || 0}|${el.contrast || 0}`;
   const hit = ditherCache.get(key);
   if (hit) return hit;
 
@@ -173,6 +186,7 @@ function ditherPreview(img: HTMLImageElement, el: ImageElement): HTMLCanvasEleme
   c.drawImage(img, 0, 0, w, h);
   c.filter = 'none';
   const data = c.getImageData(0, 0, w, h);
+  const mode = resolveImageMode(data.data, w, h, el.dither);
   const gray = rgbaToGrayscale(data.data, w, h, 1.3);
   const bits = mode === 'none' ? thresholdGray(gray) : mode === 'atkinson' ? atkinson(gray, w, h) : mode === 'ordered' ? ordered(gray, w, h) : floydSteinberg(gray, w, h);
   for (let i = 0; i < bits.length; i++) {

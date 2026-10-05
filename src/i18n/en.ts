@@ -54,6 +54,8 @@ export const en = {
   none: 'None', gray25: '25% gray', gray50: '50% gray', gray75: '75% gray',
   brightness: 'Brightness', contrast: 'Contrast', dither: 'Dithering', lockAspect: 'Keep proportions',
   ditherGray: 'Grayscale 256', ditherStandard: 'Standard', ditherLight: 'Light dots', ditherBW: 'Black & white',
+  ditherAuto: 'Automatic', ditherHintAuto: 'decides per image',
+  ditherHintFloyd: 'Floyd–Steinberg', ditherHintBayer: 'Bayer', ditherHintAtkinson: 'Atkinson', ditherHintThreshold: 'threshold',
   // stage
   zoom: 'Zoom', zoomIn: 'Zoom in', zoomOut: 'Zoom out', zoomFit: 'Fit to screen', emptyStageTitle: 'Your label is empty',
   emptyStageBody: 'Add text, an image, a barcode or a QR code from the toolbar.',

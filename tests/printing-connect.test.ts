@@ -36,7 +36,6 @@ vi.mock('../src/transport/usb', () => ({
 // scheduling and profile selection, not pixels.
 vi.mock('../src/core/render/label', () => ({
   prepareForRender: async () => {},
-  ditherModeOf: () => 'none' as const,
   buildRaster: () => ({ data: new Uint8Array(48 * 10), widthBytes: 48, heightLines: 10 }),
 }));
 

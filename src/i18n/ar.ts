@@ -50,6 +50,8 @@ export const ar: Record<Key, string> = {
   none: 'بدون', gray25: 'رمادي 25%', gray50: 'رمادي 50%', gray75: 'رمادي 75%',
   brightness: 'السطوع', contrast: 'التباين', dither: 'تدرج النقاط', lockAspect: 'الحفاظ على النسبة',
   ditherGray: 'تدرّج رمادي 256', ditherStandard: 'قياسي', ditherLight: 'نقاط خفيفة', ditherBW: 'أبيض وأسود',
+  ditherAuto: 'تلقائي', ditherHintAuto: 'يقرّر حسب الصورة',
+  ditherHintFloyd: 'Floyd–Steinberg', ditherHintBayer: 'Bayer', ditherHintAtkinson: 'Atkinson', ditherHintThreshold: 'عتبة',
   zoom: 'التكبير', zoomIn: 'تكبير', zoomOut: 'تصغير', zoomFit: 'ملاءمة الشاشة', emptyStageTitle: 'الملصق فارغ',
   emptyStageBody: 'أضف نصًا أو صورة أو باركود أو رمز QR من شريط الأدوات.',
   templateTitle: 'بيانات القالب', fieldsHint: 'اكتب {{الاسم}} داخل النص أو الباركود أو QR ليُدمج حقل مع كل سجل.',

@@ -242,26 +242,34 @@ function ShapeSection({ el }: { el: ShapeElement }) {
 }
 
 /**
- * The dot patterns an image can be printed with, best for a photograph first.
+ * The dot patterns an image can be printed with.
  *
- * The plain names are what someone actually chooses between, and the hint keeps the algorithm's
- * real name beside it — the previous labels were the algorithm names alone ("Ordered (Bayer)",
- * "Floyd–Steinberg"), which told a user nothing about which one was right for a photo.
+ * Automatic comes first because it is what a new image uses and what most images want: the app
+ * looks at the image and gives a photograph error diffusion and flat art a plain threshold. It has
+ * to be listed, and not merely implied by an unset value, because the button above it must say
+ * something true — it used to read "Grayscale 256" for every new image while a flat one actually
+ * printed as "Black & white".
+ *
+ * The hint keeps the algorithm's real name beside the plain one; the previous labels were the
+ * algorithm names alone ("Ordered (Bayer)", "Floyd–Steinberg"), which told a user nothing about
+ * which one was right for a photo.
  */
-const DITHER_CHOICES: { value: DitherChoice; label: Key; hint: string }[] = [
-  { value: 'floyd-steinberg', label: 'ditherGray', hint: 'Floyd–Steinberg' },
-  { value: 'ordered', label: 'ditherStandard', hint: 'Bayer' },
-  { value: 'atkinson', label: 'ditherLight', hint: 'Atkinson' },
-  { value: 'none', label: 'ditherBW', hint: 'threshold' },
+const DITHER_CHOICES: { value: DitherChoice; label: Key; hint: Key }[] = [
+  { value: 'auto', label: 'ditherAuto', hint: 'ditherHintAuto' },
+  { value: 'floyd-steinberg', label: 'ditherGray', hint: 'ditherHintFloyd' },
+  { value: 'ordered', label: 'ditherStandard', hint: 'ditherHintBayer' },
+  { value: 'atkinson', label: 'ditherLight', hint: 'ditherHintAtkinson' },
+  { value: 'none', label: 'ditherBW', hint: 'ditherHintThreshold' },
 ];
 
 function ImageSection({ el }: { el: ImageElement }) {
   const t = useT();
   const p = useStore((s) => s.patchSelected);
   const input = useRef<HTMLInputElement>(null);
-  // An image with no explicit choice prints as 'auto', which resolves to Floyd–Steinberg for a
-  // photograph, so the trigger must name the thing the printer will actually do.
-  const current = el.dither ?? 'floyd-steinberg';
+  // An unset choice means Automatic, and Automatic is a real entry in the list rather than a mode
+  // named on its behalf: the resolution depends on the image, so naming one of the four would be a
+  // guess about the picture rather than a statement about the setting.
+  const current = el.dither ?? 'auto';
   return (
     <Section title={t('addImage')}>
       <div className="row">
@@ -273,7 +281,7 @@ function ImageSection({ el }: { el: ImageElement }) {
       <Field label={t('dither')}>
         <MenuButton
           label={t((DITHER_CHOICES.find((d) => d.value === current) ?? DITHER_CHOICES[0]).label)}
-          items={DITHER_CHOICES.map((d) => ({ value: d.value, label: t(d.label), hint: d.hint }))}
+          items={DITHER_CHOICES.map((d) => ({ value: d.value, label: t(d.label), hint: t(d.hint) }))}
           onPick={(v) => p({ dither: v as DitherChoice })}
         />
       </Field>

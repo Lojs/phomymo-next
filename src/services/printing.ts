@@ -5,15 +5,14 @@
 import { BLETransport } from '../transport/ble';
 import { USBTransport } from '../transport/usb';
 import { useStore } from '../state/store';
-import { alignmentOf, isRotated, isTspl, isTape, widthBytesToMm, type ResolvedConfig } from '../core/printers/definitions';
-import { buildRaster, ditherModeOf, prepareForRender, type RasterTarget } from '../core/render/label';
+import { alignmentOf, isRotated, isTape, widthBytesToMm, type ResolvedConfig } from '../core/printers/definitions';
+import { buildRaster, prepareForRender, type RasterTarget } from '../core/render/label';
 import { encodeDensityTest, encodePrint, type Raster } from '../core/protocols/encoders';
 import { runOps } from '../core/protocols/ops';
 import type { LabelElement } from '../core/model/elements';
 import { evaluateExpressions, substituteFields, substituteFieldsByZone, type TemplateRecord } from '../core/template/template';
 import { getDeviceModel, getDeviceTapeWidth, saveDeviceModel, saveDeviceTapeWidth } from '../core/storage/storage';
 import { displayLayout, multiLayout, needsPrintRotation } from '../core/render/layout';
-import type { DitherMode } from '../core/raster/raster';
 import { translate } from '../i18n';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -351,28 +350,6 @@ export function currentTarget(): { cfg: ResolvedConfig; target: RasterTarget } {
   };
 }
 
-/**
- * Which binarisation the artwork needs.
- *
- * `auto` means "decide from the artwork", and the only artwork that wants halftoning is a
- * photograph. Text, barcodes and shapes are line art: error-diffusing them scatters their edges
- * into isolated dots and eats the inside of thick strokes, which is what made printed labels look
- * speckled and hollow. Measured on a text-only label, dithering left 453 isolated dots that
- * thresholding does not produce at all.
- *
- * `shouldUseDithering` cannot make this call: it tests for photo-like tone, and antialiased glyph
- * edges hand it hundreds of distinct greys — well past its 50-colour threshold — so it answers
- * "yes, dither" for plain text. The caller knows whether an image is present; the pure function
- * does not. So the decision lives here, and the ported heuristic keeps its bit-identical
- * behaviour for the callers that genuinely have a picture.
- */
-export function modeFor(elements: LabelElement[], cfg: ResolvedConfig): DitherMode {
-  const m = ditherModeOf(elements);
-  if (m !== 'auto') return m;                                   // an element asked for one by name
-  if (isTspl(cfg)) return 'threshold';                          // TSPL printers need crisp barcodes
-  return elements.some((e) => e.type === 'image') ? 'auto' : 'threshold';
-}
-
 export async function rasterFor(elements: LabelElement[]): Promise<Raster> {
   const { multi, labelSize } = st();
   // `layout` here is the DISPLAY layout — what's on screen, landscape included. buildRaster
@@ -380,14 +357,26 @@ export async function rasterFor(elements: LabelElement[]): Promise<Raster> {
   // printer/protocol-specific runs, so that stage is unaffected by user orientation.
   const layout = multi.enabled ? multiLayout(multi) : displayLayout(labelSize);
   const rotateForPrint = !multi.enabled && needsPrintRotation(labelSize);
-  const { cfg, target } = currentTarget();
+  const { target } = currentTarget();
   // Expressions are already resolved by the caller, which must do it BEFORE field substitution
   // (see printCurrent). Evaluating again here would re-scan substituted CSV data and reintroduce
   // the bug where a value containing "[[date]]" prints the current date.
   const ready = elements;
   await prepareForRender(ready);
   warnIfWiderThanPrinter(layout, target);
-  return buildRaster(ready, layout, target, modeFor(ready, cfg), rotateForPrint);
+  // A plain threshold, always, and there is deliberately no mode to choose here.
+  //
+  // Each image is binarised by its own rule while it is drawn (see draw.ts), so by the time the
+  // label is one raster the only continuous-tone pixels left are the antialiased edges of text and
+  // codes — and error-diffusing those is what made printed labels look speckled and hollow
+  // (measured: 453 isolated dots on a text-only label, against none under a threshold).
+  //
+  // The decision used to be a `modeFor()` here, and it went wrong twice: first it dithered every
+  // label, then it dithered any label that happened to contain an image, which speckled the text
+  // beside a logo. A mode that can be set wrongly is a mode that will be; the per-image rule has
+  // nowhere left to be wrong, because an image is the only thing that wants halftoning and it
+  // carries its own answer.
+  return buildRaster(ready, layout, target, 'threshold', rotateForPrint);
 }
 
 /**

@@ -2,7 +2,7 @@
 /**
  * Why a printed label looked speckled and hollow while the same design looked clean on screen.
  *
- * Two separate causes, both measured before either was changed:
+ * Three causes, all measured before anything was changed:
  *
  *  1. Dithering was applied to line art. The print path asked for 'auto', and the ported
  *     `shouldUseDithering` heuristic answers "yes, dither" for anything with more than 50 distinct
@@ -15,16 +15,23 @@
  *     on a 53 mm M02 Pro label, 6954 of ~8855 ink dots landed on a different dot than a native
  *     300 DPI render, and the edges came out rounded and wavy.
  *
- * The tests below pin the decisions, not the pixels: jsdom's canvas stub discards drawing, so what
- * is observable here is which scale the renderer asked for, how many canvases it allocated, and
- * which binarisation mode the print path chose.
+ *  3. Fixing 1 by "threshold unless the label contains an image" still dithered a label with a logo
+ *     *and* text, because the image put the whole composite back on the photo path. The rule now
+ *     belongs to the image: each one is binarised by its own mode while it is drawn, and the
+ *     composite is always a plain threshold, so text can never be dragged into a halftone by a
+ *     picture beside it.
+ *
+ * What is testable here and what is not: jsdom's canvas stub discards drawing, so no test in this
+ * file can see a pixel. `resolveImageMode` is pure — pixels in, mode out — so it is tested directly
+ * and that is where the decision now lives. The composite behaviour was measured in a real browser
+ * instead (the text region of a text+image label carries no isolated speckle), which is the same
+ * split used for the 300 DPI fix: unit-test the decision, measure the pixels.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { buildRaster, renderPixels, rasterScale, type RasterTarget } from '../src/core/render/label';
 import { singleLayout } from '../src/core/render/layout';
-import { createText, createImage } from '../src/core/model/elements';
-import { modeFor } from '../src/services/printing';
-import type { ResolvedConfig } from '../src/core/printers/definitions';
+import { createText } from '../src/core/model/elements';
+import { resolveImageMode } from '../src/core/render/draw';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -32,10 +39,6 @@ const target = (over: Partial<RasterTarget> = {}): RasterTarget => ({
   widthBytes: 78, dpi: 300, alignment: 'left', rotated: false, ...over,
 });
 const layout = () => singleLayout({ width: 53, height: 40 });   // 424 x 320 px at 203 DPI
-
-const cfg = (over: Partial<ResolvedConfig> = {}): ResolvedConfig => ({
-  width: 78, protocol: 'm-series', dpi: 300, recognized: true, matchedPattern: null, definition: null, ...over,
-});
 
 /** Record every setTransform the renderer applies, so the render scale is observable. */
 function recordTransforms() {
@@ -122,33 +125,59 @@ describe('the artwork is rendered at the head resolution, not upscaled to it', (
   });
 });
 
-describe('line art is thresholded, a photograph is dithered', () => {
-  it('thresholds a text-only label instead of dithering it', () => {
-    // The bug in one line: this used to come back 'auto', and 'auto' dithers antialiased text.
-    expect(modeFor([createText('hello')], cfg())).toBe('threshold');
+const W = 40;
+const H = 40;
+
+/** Two tones and no near-neighbour deltas: the heuristic's "line art". */
+function flatPixels(): Uint8ClampedArray {
+  const px = new Uint8ClampedArray(W * H * 4);
+  for (let i = 0; i < W * H; i++) {
+    const p = i * 4;
+    const v = (i % W) < W / 2 ? 0 : 255;
+    px[p] = px[p + 1] = px[p + 2] = v;
+    px[p + 3] = 255;
+  }
+  return px;
+}
+
+/** A smooth gradient: well over 50 distinct colours, so the heuristic's "photograph". */
+function photoPixels(): Uint8ClampedArray {
+  const px = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const p = (y * W + x) * 4;
+      const v = Math.round((255 * (x + y)) / (W + H));
+      px[p] = px[p + 1] = px[p + 2] = v;
+      px[p + 3] = 255;
+    }
+  }
+  return px;
+}
+
+describe('an image decides its own binarisation', () => {
+  it('gives flat art a plain threshold', () => {
+    expect(resolveImageMode(flatPixels(), W, H, undefined)).toBe('none');
+    expect(resolveImageMode(flatPixels(), W, H, 'auto')).toBe('none');
   });
 
-  it('thresholds shapes and codes too — none of them are photographs', () => {
-    const shapes = [{ ...createText('x') }, { ...createText('y') }];
-    expect(modeFor(shapes, cfg())).toBe('threshold');
+  it('gives a photograph error diffusion', () => {
+    expect(resolveImageMode(photoPixels(), W, H, undefined)).toBe('floyd-steinberg');
+    expect(resolveImageMode(photoPixels(), W, H, 'auto')).toBe('floyd-steinberg');
   });
 
-  it('keeps dithering available once an image is on the label', () => {
-    // 'auto' is still the answer for artwork that may contain a photo; shouldUseDithering then
-    // decides from the tones.
-    expect(modeFor([createText('x'), createImage('data:image/png;base64,')], cfg())).toBe('auto');
+  it('honours a mode the element asked for by name, whatever the image looks like', () => {
+    expect(resolveImageMode(photoPixels(), W, H, 'ordered')).toBe('ordered');
+    expect(resolveImageMode(photoPixels(), W, H, 'none')).toBe('none');
+    expect(resolveImageMode(flatPixels(), W, H, 'atkinson')).toBe('atkinson');
   });
 
-  it('still honours an explicit dither the element asked for', () => {
-    const img = { ...createImage('data:image/png;base64,'), dither: 'ordered' as const };
-    expect(modeFor([img], cfg())).toBe('ordered');
-  });
-
-  it('thresholds a text-only TSPL label as it always did', () => {
-    expect(modeFor([createText('x')], cfg({ protocol: 'tspl' }))).toBe('threshold');
-  });
-
-  it('an image with no explicit dither on a TSPL printer still gets threshold', () => {
-    expect(modeFor([createImage('data:image/png;base64,')], cfg({ protocol: 'tspl' }))).toBe('threshold');
+  it('never returns "auto" — the caller needs a mode it can act on', () => {
+    // 'auto' means "decide", and deciding is this function's job. Handing it back would push the
+    // decision to a caller that has no pixels to decide with, which is how the composite ended up
+    // halftoning text in the first place.
+    for (const declared of [undefined, 'auto'] as const) {
+      expect(resolveImageMode(flatPixels(), W, H, declared)).not.toBe('auto');
+      expect(resolveImageMode(photoPixels(), W, H, declared)).not.toBe('auto');
+    }
   });
 });
