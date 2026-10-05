@@ -1,36 +1,22 @@
-# Phomymo Next — label designer for a Phomemo thermal printer.
-#
-# The deployed instance (the Pi) pulls the published image; this file is what a contributor gets when
-# they run `docker compose up`. Both are supported at once: with `build` present, compose builds the
-# image when it is missing locally or when --build is passed, and otherwise uses the published one.
 services:
   phomymo-next:
     image: ghcr.io/lojs/phomymo-next:latest
     build: .
     container_name: "phomymo-next"
     restart: unless-stopped
+    network_mode: bridge
     ports:
-      - 8444:443
+      - "8444:443"
     volumes:
-      # A bind mount, not a named volume, on purpose: `docker compose down -v` then leaves the
-      # certificate alone, and a real cert.pem/key.pem can be dropped in without docker cp.
       - ./phomymo-certs:/certs
     env_file:
-      # Optional: with no .env the container falls back to PHOMYMO_DOMAIN=localhost, which still works
-      # for a local trial run. Previously a missing .env aborted the whole stack.
       - path: .env
         required: false
     environment:
       - TZ=UTC
     read_only: true
-    # Drop everything, then give back only what nginx and the entrypoint need as root:
-    #   CHOWN, SETUID, SETGID  nginx's master creates its temp dirs and switches workers to the
-    #                          unprivileged `nginx` user. Without SETUID/SETGID the workers never
-    #                          start ("setgid(101) failed").
-    #   NET_BIND_SERVICE       ports 80/443 inside the container. Docker already allows them via a
-    #                          sysctl; this keeps it working on runtimes that do not.
-    #   DAC_OVERRIDE           writing the generated certificate into ./phomymo-certs when that
-    #                          directory belongs to the host user rather than to root.
+    # nginx binds 443, creates its own temp dirs, and drops its workers to the unprivileged
+    # nginx user — so it needs these five back after everything else is dropped.
     cap_drop:
       - ALL
     cap_add:
@@ -41,9 +27,7 @@ services:
       - DAC_OVERRIDE
     security_opt:
       - no-new-privileges:true
-    # Writable scratch space for a read-only root. A tmpfs starts EMPTY and hides what the image has
-    # at that path, so nothing the entrypoint needs to read may live in these directories (the nginx
-    # template is kept in /usr/share/phomymo for exactly that reason).
+    # Writable scratch for a read-only root.
     tmpfs:
       - /var/cache/nginx:size=10m
       - /var/run:size=1m

@@ -45,136 +45,59 @@ Bluetooth or USB.
 
 ---
 
-## Contents
-
-- [Features](#features)
-- [Requirements](#requirements)
-- [Quick start](#quick-start)
-- [Accessing it from another device](#accessing-it-from-another-device)
-- [Commands](#commands)
-- [Where your data lives](#where-your-data-lives)
-- [Local development](#local-development)
-- [Architecture](#architecture)
-- [Credits and provenance](#credits-and-provenance)
-- [Licence](#licence)
-
----
-
 ## Features
 
-| | |
-|---|---|
-| **Real label sizes** | 12 preset sizes, round labels, continuous tape, or any custom size in millimetres. The size you pick *is* the paper in the printer — orientation never rewrites it. |
-| **Portrait and Landscape** | On any rectangular label. Switching rotates your whole design 90° as one piece; nothing is reset. |
-| **Bluetooth and USB** | Print width, DPI and alignment are taken from the detected printer model — 18 built-in definitions, plus your own. |
-| **Batch printing** | One design, many records, from a CSV or the in-app table. Fields (`{{SKU}}`) and expressions (`[[date]]`). |
-| **Print preview** | Images shown as they will actually dither on paper, while text and barcodes stay crisp. |
-| **Import / export** | Designs as JSON, PNG or PDF; data as CSV. |
-| **Arabic and English** | A full right-to-left layout, not a translation layer. |
+- **Real label sizes** — 12 presets, round labels, continuous tape, or any custom size in millimetres. The size you pick *is* the paper in the printer.
+- **Portrait and landscape** on any rectangular label; switching rotates the whole design as one piece.
+- **Bluetooth and USB** — print width, DPI and alignment come from the printer model. 18 built-in definitions, plus your own.
+- **Batch printing** — one design, many records, from a CSV or the in-app table, with `{{fields}}` and `[[expressions]]`.
+- **Print preview** — images shown as they will actually dither on paper, while text and barcodes stay crisp.
+- **Import / export** — designs as JSON, PNG or PDF; data as CSV.
+- **Arabic and English** — a real right-to-left layout, not a translation layer.
 
 ---
 
 ## Requirements
 
-Bluetooth and USB printing use the **Web Bluetooth** and **WebUSB** APIs, which work
-**only in Chrome or Edge**, and **only in a secure context** — HTTPS, or
+Printing uses the **Web Bluetooth** and **WebUSB** APIs, which work **only in
+Chrome or Edge** and **only in a secure context** — HTTPS, or
 `http://localhost`. That is why the container serves the app over HTTPS.
 
-**On a Mac, which browsers can print.** Safari does not implement Web Bluetooth or WebUSB
-— they are missing from that browser, not switched off — so the connect options are
-absent from the menu and a note explains why. **Chrome and Edge on macOS do implement
-both**, and the app detects them by feature detection alone (`'bluetooth' in navigator`),
-so printing works there exactly as it does on Windows, Linux and Android. There is no
-AirPrint fallback, so a browser without the APIs cannot be helped. Everything else —
-designing, the CSV template table, and export to PNG, PDF, JSON or CSV — works
-everywhere. The container itself runs on a Mac under Docker Desktop (the arm64 image is
-published); the browser is what decides whether printing is possible.
+- **Windows, Linux, Android** — Chrome or Edge. On Windows, use Bluetooth: USB
+  usually fails with "Permission denied" because Windows binds the printer to its
+  own kernel-mode driver (*USB Printing Support*), and reclaiming the interface
+  needs a manual WinUSB override. On Linux USB works normally.
+- **macOS** — Chrome and Edge on macOS do implement both APIs, so they print.
+  Safari does not implement Web Bluetooth or WebUSB, so it cannot.
+- **iOS and iPadOS** — no browser can print.
 
-Printing works from Chrome or Edge on Windows, Linux and Android. It does not work
-from Safari on macOS, iOS or iPadOS, which ship no Web Bluetooth implementation.
+Designing, the CSV template table, and export all work everywhere.
 
-**On Windows, use Bluetooth.** USB printing there usually fails with "Permission
-denied" even though the browser and the site are both fine. Windows binds the
-printer to its own kernel-mode print driver — Device Manager shows it as *USB
-Printing Support* — and once Windows holds the interface, no browser can claim it.
-WebUSB needs the device free of that binding, which takes a manual WinUSB driver
-override; the certificate warning you already click through is a much smaller
-step than that. On Linux and the Raspberry Pi there is no such driver, so USB
-works normally. This is a Windows behaviour, not a limit of this app.
-
-> **A self-signed certificate is enough to print, but not to install.**
-> The browser will warn once; click through it and the origin counts as secure, so
->
-> Before you click through it, check the fingerprint. The container prints it
-> on every start (`docker logs phomymo`), and it also appears in your browser's
-> certificate viewer (the padlock, then "Connection is secure"). They should
-> match. This is the one thing standing between you and an imposter on your
-> network serving modified JavaScript under the same address — a warning you
-> cannot verify is not much of a warning.
-
-> Bluetooth and USB work. Installing as a PWA (Chrome refuses a service worker on an
-> origin whose certificate was accepted by clicking through) needs a certificate a
-> browser already trusts — see *Using your own certificate instead*, below.
+> **The certificate is self-signed.** The browser warns once; click through it
+> and the origin counts as secure, so printing works. Installing the app as a PWA
+> needs a certificate the browser already trusts — see below.
 
 ---
 
 ## Quick start
 
 ```sh
-cp .env.example .env        # edit PHOMYMO_DOMAIN if you need LAN access
+cp .env.example .env        # set PHOMYMO_DOMAIN for LAN access
 docker compose up -d --build
 ```
 
-Open **https://localhost:8444**.
+Open **https://localhost:8444**. Only one port is published, so always use
+`https://` and the port explicitly.
 
-The stack publishes a **single port** (`8444:443`). There is no plain-HTTP port
-to redirect from, so always use `https://` and the port explicitly.
-
----
-
-## Accessing it from another device
-
-Compose publishes the port on all interfaces, so anything on your network can
-reach it. You only need to tell the container which address to put in its
-certificate.
-
-This is also the way around a browser that cannot print: serve the app from a
-Linux or Windows machine (or the Pi), then open it from Chrome or Edge on any
-other device on the network. Designing and exporting work everywhere; only printing
-needs a browser that implements Web Bluetooth or WebUSB.
-
-1. Find this machine's LAN IP — `hostname -I` on Linux, or check your router.
-2. Put it in `.env` (optional; without it the app assumes `localhost`):
-   ```sh
-   PHOMYMO_DOMAIN=192.168.1.50
-   ```
-3. Restart so the certificate is regenerated for that address:
-   ```sh
-   docker compose up -d
-   ```
-4. Open **https://192.168.1.50:8444**.
+To reach it from another device, put this machine's LAN address in `.env` as
+`PHOMYMO_DOMAIN=192.168.1.50` and run `docker compose up -d`.
 
 <details>
-<summary>Using your own certificate instead</summary>
+<summary>Using your own certificate</summary>
 
-Copy `cert.pem` and `key.pem` into `./phomymo-certs/` on the host, then restart:
-
-```sh
-cp ./cert.pem ./phomymo-certs/cert.pem
-cp ./key.pem  ./phomymo-certs/key.pem
-docker compose restart
-```
-
-`./phomymo-certs` is a **bind mount**, not a named volume, so the files stay
-plain files you can read, replace or back up — and `docker compose down -v`
-leaves them alone.
-
-The container will not touch a certificate you supplied. A marker file,
-`phomymo-certs/.self-signed-for`, records the address and fingerprint of the
-*self-signed* certificate it generated; if that marker is missing or its
-fingerprint no longer matches the certificate on disk, the certificate is
-yours and it is left alone. Change `PHOMYMO_DOMAIN` and the self-signed one is
-regenerated on the next start rather than left reporting a name mismatch.
+Copy `cert.pem` and `key.pem` into `./phomymo-certs/`, then
+`docker compose restart`. The container leaves a certificate it did not
+generate alone.
 
 </details>
 
@@ -184,32 +107,21 @@ regenerated on the next start rather than left reporting a name mismatch.
 
 | Action | Command |
 |---|---|
-| Build the image | `docker compose build` |
 | Start (builds if needed) | `docker compose up -d --build` |
 | Start without rebuilding | `docker compose up -d` |
 | Stop | `docker compose down` |
-| View logs | `docker compose logs -f` |
+| Logs | `docker compose logs -f` |
 | Check it's running | `docker compose ps` |
-| Full reset | `docker compose down` |
-| Reset including the certificate | `rm -rf phomymo-certs && docker compose up -d` |
 
 ---
 
 ## Where your data lives
 
-The **only** thing persisted on the server is the HTTPS certificate, in
-`./phomymo-certs` on the host (mounted at `/certs`). It survives restarts and
-rebuilds — otherwise you would see a fresh browser warning every time — and the
-entrypoint warns at startup if it is within 30 days of expiry. Because it is a
-bind mount, `docker compose down -v` does **not** remove it.
-
-Everything else — designs, settings, printer memory, template data — lives in
-the browser's `localStorage` on each device that opens the app. The server is
-stateless otherwise, so `docker compose down` never touches it.
-
-> **This is per-device and per-browser.** Clearing site data, switching browser,
-> or opening the app in a private window all start from empty. Export anything
-> you want to keep (`Export JSON` / `Export CSV` in the designs dialog).
+The only thing kept on the server is the HTTPS certificate, in
+`./phomymo-certs`. Everything else — designs, settings, printer memory, template
+data — lives in your browser's `localStorage`, per device and per browser.
+Clearing site data or switching browser starts from empty, so export anything you
+want to keep.
 
 ---
 
@@ -217,109 +129,34 @@ stateless otherwise, so `docker compose down` never touches it.
 
 ```sh
 npm install
-npm run dev         # http://localhost:5173 — localhost counts as secure, so BLE/USB work here too
+npm run dev         # http://localhost:5173 — localhost is a secure context, so BLE/USB work here
 npm run build       # production build into dist/
-npm test            # unit + golden tests
+npm test            # unit and golden tests
 npm run test:ci     # the same, plus coverage thresholds — what CI runs
 npm run typecheck
 ```
 
-### Tests
+**1349 tests** across 60 files. Many are **golden tests**: they compare this
+rewrite's output byte-for-byte against a frozen copy of the original
+implementation in `tests/legacy/`, so a refactor cannot quietly change what
+reaches the paper.
 
-**1349 tests** across 60 files — 1331 run here, and 18 more are the nginx
-routing tests, which skip themselves when nginx is not installed and run on CI.
-Many are **golden tests**: they compare this rewrite's output byte-for-byte
-against a frozen copy of the original implementation in `tests/legacy/`, so a
-refactor cannot quietly change what reaches the paper.
-
-The count moves as the suite grows, and `npx vitest list` under-reports it (it
-skips the jsdom project). Read it off the last line of `npm test` instead:
-`Tests  1331 passed | 18 skipped (1349)`.
-
-`npm run typecheck` and `npm run build` are separate; CI runs all three before
-anything is published. Note that `npm test` alone does **not** compute coverage —
-use `npm run test:ci` to exercise the thresholds in `vite.config.ts` (80%
-statements, 70% branches), which is what CI enforces.
-
-Three places deliberately diverge from the legacy behaviour, each asserted
-explicitly so it cannot drift silently:
-
-- an empty CSV file is reported as empty, not parsed as one nameless column;
-- a malformed CSV row is reported by its real line number;
-- **a label wider than the printer is clipped to the printer's print width.**
-  The legacy `packBits()` computed a negative offset in that case and then wrote
-  past the end of each row, overwriting the next — a 60 mm label on a 40 mm
-  printer produced a blank label with no error. See
-  `tests/raster-overflow.test.ts`.
-
-See `tests/golden-raster-templates.test.ts` for what each one changed and why.
+`src/core/` is framework-free logic — protocols, rasterisation, the data model,
+templates — with no React and no browser APIs beyond `canvas`, which is what
+makes that possible. `src/transport/` is Web Bluetooth and WebUSB,
+`src/state/` the store, `src/services/` print orchestration, `src/ui/` React,
+`src/i18n/` the dictionaries, `docker/` the HTTPS packaging.
 
 ---
 
-## Architecture
+## Credits
 
-| Path | What lives there |
-|---|---|
-| `src/core/` | Framework-free logic: print protocols and byte encoders, rasterisation and dithering, the element/label data model, templates and CSV, orientation. |
-| `src/transport/` | Web Bluetooth and WebUSB. |
-| `src/state/store.ts` | The app's single Zustand store. |
-| `src/services/` | Print orchestration and user actions. |
-| `src/ui/` | React components; `src/ui/stage/` is the canvas editor. |
-| `src/i18n/` | English and Arabic dictionaries. |
-| `docker/` | nginx + HTTPS packaging. |
-
-The layering is deliberate: `src/core/` has no React and no browser APIs beyond
-`canvas`, which is why it can be tested against a frozen copy of the original in
-plain Node.
-
-### Orientation, briefly
-
-`LabelSize.orientation` sits next to `width`/`height`, which always stay the
-literal physical millimetres. **Portrait** always means a tall canvas and
-**Landscape** a wide one, built from the label's actual short and long sides — so
-a 40×30 mm tape and a custom 30×100 mm label both support both orientations.
-Switching rotates the composition as one piece (`rotateComposition`), and at
-print time the artwork is rotated back onto the label's physical axes
-(`rotatePixelsCW`) *before* the protocol pipeline — so `widthBytes`, DPI scaling
-and printer-specific rotation never learn that orientation exists.
-
-A design saved before this feature has no `orientation` field. Rather than
-defaulting it to "portrait" — which could visually rotate a design that used to
-render wide — `resolveOrientation` infers whichever orientation reproduces the
-label's existing arrangement unchanged, so **old designs keep printing exactly as
-they always did**.
-
----
-
-## Credits and provenance
-
-**This project is inspired by and derived from
-[transcriptionstream/phomymo](https://github.com/transcriptionstream/phomymo)** —
-an excellent browser-based label designer written in plain JavaScript. The
-original established the hard parts: the Phomemo print protocols, the raster and
-dithering pipeline, and the printer definitions. Phomymo Next rebuilds that work
-as a typed, component-based application.
-
-**Ported from the original:**
-
-- `src/core/protocols/` and `src/core/printers/` — the print protocol and
-  printer-definition logic, in TypeScript.
-- `src/transport/` — Web Bluetooth and WebUSB.
-- `tests/legacy/` — a frozen copy of the original, kept so the golden tests can
-  assert byte-identical output.
-- `tests/golden-*.test.ts` — 193 of the tests compare against that legacy code
-  directly.
-
-**New here:** the React component architecture, the TypeScript data model, the
-Arabic/English interface, orientation support, and the Docker/HTTPS packaging.
-
-The upstream README states an MIT licence but ships no `LICENSE` file. See
-[NOTICE](NOTICE) for the full attribution, including the original project's own
-protocol research (`vivier/phomemo-tools`, `yaddran/thermal-print`, and
-reverse-engineering by `ooki1jp`).
-
-If you want the upstream project itself, use
-[transcriptionstream/phomymo](https://github.com/transcriptionstream/phomymo).
+Derived from
+[transcriptionstream/phomymo](https://github.com/transcriptionstream/phomymo),
+which established the hard parts: the Phomemo print protocols, the raster and
+dithering pipeline, and the printer definitions. `tests/legacy/` keeps a frozen
+copy of it so the golden tests can assert byte-identical output. See
+[NOTICE](NOTICE) for full attribution.
 
 ---
 
