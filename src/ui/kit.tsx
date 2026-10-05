@@ -61,6 +61,17 @@ export function MenuButton({ label, items, onPick, layout = 'list', icon }: {
    * to scroll to them — the option was simply unreachable. Measuring after mount and before paint
    * means the flip is not visible as a jump.
    */
+  /**
+   * The vertical band the menu has to fit inside: the window, narrowed by every ancestor that clips.
+   *
+   * The window was the only boundary considered, and it is not the only one that can cut a menu off.
+   * The controls sit in a panel that scrolls (`.panel { overflow-y: auto }`), so a menu opened by a
+   * control near the bottom of a short panel was inside the window and still half outside the panel:
+   * the window test said "fits", the flip was not taken, and the options that fell past the panel's
+   * edge were only reachable by scrolling a panel the user had no reason to think was hiding them.
+   *
+   * Only the window counts as a floor, so the loop starts at 0 and only ever narrows.
+   */
   useLayoutEffect(() => {
     if (!open) { setFlip(false); return; }
     // `.menu-wrap` tightly wraps the trigger, and Button does not forward a ref, so the wrapper
@@ -68,7 +79,15 @@ export function MenuButton({ label, items, onPick, layout = 'list', icon }: {
     const button = ref.current?.getBoundingClientRect();
     const menu = menuRef.current?.getBoundingClientRect();
     if (!button || !menu || menu.height === 0) return;
-    setFlip(menu.bottom > window.innerHeight && button.top > menu.height);
+    let top = 0;
+    let bottom = window.innerHeight;
+    for (let p = menuRef.current?.parentElement ?? null; p; p = p.parentElement) {
+      if (getComputedStyle(p).overflowY === 'visible') continue;
+      const box = p.getBoundingClientRect();
+      top = Math.max(top, box.top);
+      bottom = Math.min(bottom, box.bottom);
+    }
+    setFlip(menu.bottom > bottom && button.top > menu.height && button.top - menu.height >= top);
   }, [open]);
 
   return (

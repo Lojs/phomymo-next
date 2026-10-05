@@ -110,6 +110,28 @@ export function saveDesign(name: string, design: Design): void {
  * threw on the first render, so opening that one design took the app down with no way back.
  * loadAutosave() has repaired this for its own key since v1.0.11; a saved design needed the same.
  */
+/**
+ * Rebuild a usable multi-label config from a stored value, repairing each field rather than
+ * rejecting the whole thing.
+ *
+ * loadDesign() cast this through as `raw.multiLabel`, so a saved design with `labelsAcross: 0`
+ * skipped the clamp that loadAutosave() has always applied and reached displayLayout(), which
+ * divides by it. Both loaders read the same kind of value out of the same localStorage and are
+ * equally hand-editable, so they use the same repair instead of one of them trusting the shape.
+ */
+const repairMultiLabel = (value: unknown): Design['multiLabel'] => {
+  if (!isRecord(value)) return undefined;
+  const m = value as Record<string, unknown>;
+  return {
+    enabled: !!m.enabled,
+    labelWidth: clamp(finiteOr(m.labelWidth, 10), LIMITS.multi.minLabelW, LIMITS.multi.maxLabelW),
+    labelHeight: clamp(finiteOr(m.labelHeight, 20), LIMITS.multi.minLabelH, LIMITS.multi.maxLabelH),
+    labelsAcross: clamp(finiteOr(m.labelsAcross, 4), LIMITS.multi.minAcross, LIMITS.multi.maxAcross),
+    gapMm: clamp(finiteOr(m.gapMm, 2), LIMITS.multi.minGap, LIMITS.multi.maxGap),
+    cloneMode: m.cloneMode !== false,
+  };
+};
+
 export const loadDesign = (name: string): Design | null => {
   const all = allDesigns();
   if (!hasOwn(all, name)) return null;
@@ -128,8 +150,14 @@ export const loadDesign = (name: string): Design | null => {
   if (Array.isArray(raw.templateFields)) {
     design.templateFields = raw.templateFields.filter((f: unknown): f is string => typeof f === 'string');
   }
-  if (Array.isArray(raw.templateData)) design.templateData = raw.templateData as Design['templateData'];
-  if (isRecord(raw.multiLabel)) design.multiLabel = raw.multiLabel as Design['multiLabel'];
+  // Both of these were cast through unchecked while loadAutosave() filtered and clamped the very
+  // same values. A saved design is no more trustworthy than an autosave — it is the same
+  // localStorage, and it can be hand-edited or written by an older build.
+  if (Array.isArray(raw.templateData)) {
+    design.templateData = raw.templateData.filter(isRecord) as TemplateRecord[];
+  }
+  const multiLabel = repairMultiLabel(raw.multiLabel);
+  if (multiLabel) design.multiLabel = multiLabel;
   if (typeof raw.savedAt === 'number') design.savedAt = raw.savedAt;
   return design;
 };
@@ -376,17 +404,8 @@ export function loadAutosave(): Design | null {
   if (d.isTemplate) design.isTemplate = true;
   if (Array.isArray(d.templateFields)) design.templateFields = d.templateFields.filter((f): f is string => typeof f === 'string');
   if (Array.isArray(d.templateData)) design.templateData = d.templateData.filter(isRecord) as TemplateRecord[];
-  if (isRecord(d.multiLabel)) {
-    const m = d.multiLabel as Record<string, unknown>;
-    design.multiLabel = {
-      enabled: !!m.enabled,
-      labelWidth: clamp(finiteOr(m.labelWidth, 10), LIMITS.multi.minLabelW, LIMITS.multi.maxLabelW),
-      labelHeight: clamp(finiteOr(m.labelHeight, 20), LIMITS.multi.minLabelH, LIMITS.multi.maxLabelH),
-      labelsAcross: clamp(finiteOr(m.labelsAcross, 4), LIMITS.multi.minAcross, LIMITS.multi.maxAcross),
-      gapMm: clamp(finiteOr(m.gapMm, 2), LIMITS.multi.minGap, LIMITS.multi.maxGap),
-      cloneMode: m.cloneMode !== false,
-    };
-  }
+  const multiLabel = repairMultiLabel(d.multiLabel);
+  if (multiLabel) design.multiLabel = multiLabel;
   return design;
 }
 
@@ -446,6 +465,27 @@ export function isForeignWrite(event: { key: string | null; storageArea?: unknow
   // `storageArea` is null when the browser is clearing storage, and the event is not delivered in
   // the tab that made the change, so anything arriving here came from elsewhere by definition.
   return !!event.storageArea && isWatched(event.key);
+}
+
+/**
+ * A gate that lets one warning through per key per interval.
+ *
+ * Another tab autosaves on every edit, and each write reached the listener, so ten edits produced
+ * ten error toasts stacked on the screen. The condition does not change between them — the user is
+ * editing in two tabs — so repeating it is noise rather than information: the tenth toast says
+ * nothing the first did not, and it buries whatever else was on screen.
+ *
+ * Per key, because an autosave collision and a saved-design collision are different news. The clock
+ * is injectable so the interval can be tested without waiting a minute.
+ */
+export function createWarningGate(intervalMs = 60_000, now: () => number = Date.now) {
+  const last = new Map<string, number>();
+  return (key: string): boolean => {
+    const t = now();
+    if (t - (last.get(key) ?? -Infinity) < intervalMs) return false;
+    last.set(key, t);
+    return true;
+  };
 }
 
 export function startCrossTabWatch(target: Window = window): () => void {

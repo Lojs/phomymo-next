@@ -10,7 +10,35 @@
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { parseCSV, toCSV, csvCell, stripFormulaGuard } from '../src/core/template/template';
-import { isForeignWrite, onOtherTabWrite, startCrossTabWatch, KEYS } from '../src/core/storage/storage';
+import { isForeignWrite, onOtherTabWrite, startCrossTabWatch, createWarningGate, KEYS } from '../src/core/storage/storage';
+
+describe('E4: the cross-tab warning is rate-limited instead of stacking', () => {
+  it('lets the first write through and holds the rest back for the interval', () => {
+    // Ten autosaves in a busy minute used to mean ten identical error toasts, one per keystroke
+    // batch, burying whatever else was on screen. The condition does not change between them.
+    let clock = 1_000;
+    const mayWarn = createWarningGate(60_000, () => clock);
+    expect(mayWarn(KEYS.AUTOSAVE)).toBe(true);
+    clock += 1_000;
+    for (let i = 0; i < 10; i++) expect(mayWarn(KEYS.AUTOSAVE)).toBe(false);
+    clock += 60_000;
+    expect(mayWarn(KEYS.AUTOSAVE)).toBe(true);
+  });
+
+  it('warns separately for a different key', () => {
+    // An autosave collision and a saved-design collision are different news, so one does not silence
+    // the other.
+    const mayWarn = createWarningGate(60_000, () => 5_000);
+    expect(mayWarn(KEYS.AUTOSAVE)).toBe(true);
+    expect(mayWarn(KEYS.DESIGNS)).toBe(true);
+  });
+
+  it('does not warn at all until a write arrives', () => {
+    // The gate is a gate, not a timer: it must not fire on its own.
+    const mayWarn = createWarningGate(60_000, () => 5_000);
+    expect(mayWarn(KEYS.SETTINGS)).toBe(true);
+  });
+});
 
 describe('D4: an exported cell cannot become a live spreadsheet formula', () => {
   it.each([
@@ -177,6 +205,35 @@ describe('a damaged saved design is repaired on load, not handed to the renderer
     seed({ elements: [], labelSize: { width: 40, height: 30 } });
     const { loadDesign } = await storage();
     expect(loadDesign('nope')).toBeNull();
+  });
+
+  // E7. loadDesign() repaired labelSize and elements but cast multiLabel and templateData straight
+  // through, while loadAutosave() filtered and clamped the same values out of the same localStorage.
+  it('clamps a multi-label config instead of casting it through', async () => {
+    // labelsAcross: 0 reached displayLayout(), which divides by it; the clamp loadAutosave() has
+    // always applied was skipped because the object arrived via a saved design rather than an autosave.
+    seed({
+      elements: [],
+      labelSize: { width: 40, height: 30 },
+      multiLabel: { enabled: true, labelsAcross: 0, labelWidth: 0, labelHeight: 0, gapMm: 999 },
+    });
+    const { loadDesign } = await storage();
+    const { LIMITS } = await import('../src/core/printers/presets');
+    const m = loadDesign('broken')!.multiLabel!;
+    expect(m.labelsAcross).toBe(LIMITS.multi.minAcross);
+    expect(m.labelWidth).toBe(LIMITS.multi.minLabelW);
+    expect(m.gapMm).toBe(LIMITS.multi.maxGap);
+  });
+
+  it('drops a template data row that is not an object', async () => {
+    // A number or null row stringified to "[object Object]" on the label, or threw during CSV render.
+    seed({
+      elements: [],
+      labelSize: { width: 40, height: 30 },
+      templateData: [{ a: '1' }, 7, 'nope', null, ['x']],
+    });
+    const { loadDesign } = await storage();
+    expect(loadDesign('broken')!.templateData).toEqual([{ a: '1' }]);
   });
 });
 

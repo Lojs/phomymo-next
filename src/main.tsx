@@ -5,7 +5,7 @@ import './styles.css';
 import App from './App';
 import { useStore } from './state/store';
 import { translate } from './i18n';
-import { KEYS, onOtherTabWrite, startCrossTabWatch } from './core/storage/storage';
+import { KEYS, createWarningGate, onOtherTabWrite, startCrossTabWatch } from './core/storage/storage';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -18,7 +18,11 @@ createRoot(document.getElementById('root')!).render(
 // Nothing here can merge the two, but the user can be told, which is the difference between losing
 // work silently and losing it knowingly.
 startCrossTabWatch();
+// One warning per key per minute. The other tab autosaves on every edit, so a busy minute used to
+// stack a dozen identical error toasts and hide everything else on screen.
+const mayWarn = createWarningGate();
 onOtherTabWrite((key) => {
+  if (!mayWarn(key)) return;
   const store = useStore.getState();
   store.toast(
     key === KEYS.AUTOSAVE

@@ -285,17 +285,20 @@ async function afterConnect(type: 'ble' | 'usb', deviceName: string): Promise<bo
 /**
  * Close the link and forget everything about it, in one place.
  *
- * Three paths used to do this by hand — the transport's own onDisconnect, disconnectPrinter(), and
- * the abandon path when the model dialog is never answered — and they did not do the same things.
+ * The two paths a user can take out of a connection — disconnectPrinter(), and abandoning a connect
+ * whose model dialog was never answered — used to do this by hand and did not do the same things.
  * The abandon path, added in v1.0.17, nulled the handles without ever calling disconnect(), so the
  * radio link stayed up while the UI said "disconnected": the printer remained occupied so no other
  * device could take it, and the next Connect hit `if (this.isConnected()) return true` inside
  * _connect() and silently reused the old printer instead of offering the chooser. One function,
- * used by all three, removes the whole class of bug.
+ * used by both, removes the whole class of bug.
  *
  * Every caller here is deliberate — the user pressed Disconnect, or the connect is being abandoned —
- * so the link is never remembered as restorable. A spontaneous drop is handled by the transport's
- * own onDisconnect instead, which is the one path that does set droppedByItself.
+ * so the link is never remembered as restorable. A spontaneous drop is deliberately NOT routed
+ * through here: it is the one case that needs `droppedByItself` set, and this function clears it, so
+ * the transport's own onDisconnect keeps that job. It is a second handler for the same link, not a
+ * third caller of this function — an earlier version of this comment claimed all three went through
+ * here, which the two call sites never did.
  */
 async function teardown(): Promise<void> {
   stopBatteryRefresh();

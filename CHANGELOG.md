@@ -108,7 +108,9 @@ carry the reasoning in full; this file is the index.
 - Abandoning a connection — the unanswered model dialog from 1.0.17 — cleared the state without ever
   disconnecting. The radio link stayed up while the interface said "disconnected": the printer
   remained occupied by that tab, and the next Connect silently reused the old printer instead of
-  offering the device chooser. Teardown is now one function used by all three paths.
+  offering the device chooser. Teardown is now one function, used by both paths a user can take out
+  of a connection. A spontaneous drop keeps its own handler, because it is the only case that marks
+  the drop as unexpected.
 - An imported image element accepted any string as `imageData`, so a hostile design file could make
   the browser contact an attacker's server with the user's IP address and a query string of the
   attacker's choosing. The shipped CSP blocks it; `npm run dev` and any other host do not.
