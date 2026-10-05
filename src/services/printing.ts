@@ -5,7 +5,7 @@
 import { BLETransport } from '../transport/ble';
 import { USBTransport } from '../transport/usb';
 import { useStore } from '../state/store';
-import { alignmentOf, isRotated, isTspl, isTape, type ResolvedConfig } from '../core/printers/definitions';
+import { alignmentOf, isRotated, isTspl, isTape, widthBytesToMm, type ResolvedConfig } from '../core/printers/definitions';
 import { buildRaster, ditherModeOf, prepareForRender, type RasterTarget } from '../core/render/label';
 import { encodeDensityTest, encodePrint, type Raster } from '../core/protocols/encoders';
 import { runOps } from '../core/protocols/ops';
@@ -347,37 +347,38 @@ export async function rasterFor(elements: LabelElement[]): Promise<Raster> {
  * remaining half: telling the user their design does not fit.
  */
 /**
- * The printer's printable width in millimetres.
- *
- * widthBytes counts 8-dot bytes, so its length in millimetres depends on the head's DPI: 78 bytes
- * is 78 mm on a 203 DPI printer but 52.8 mm on a 300 DPI one. Four of the built-in printers are
- * 300 DPI, and the earlier version of this compared the label's 203 DPI pixels against
- * `widthBytes * 8` and printed that byte count with an "mm" suffix — so a 54 mm label on an
- * M02 Pro (52.8 mm of head) was clipped with no warning at all, while the warning that did appear
- * quoted a width 25 mm too wide.
- */
-function printableWidthMm(target: { widthBytes: number; dpi: number }): number {
-  return (target.widthBytes * 8 * 25.4) / (target.dpi || 203);
-}
-
-/**
  * Warn once per print job that the design does not fit the printer's print width.
  *
  * rasterFor() runs once per label in a batch, so warning inside it queued one identical toast per
  * record — a hundred records meant a hundred toasts. The flag is reset at the start of each job.
+ *
+ * Compared and quoted from the same conversion. Rounding the head to 53 mm for display while
+ * comparing against 52.8 meant a 53 mm label warned "53mm wide but this printer prints 53mm" —
+ * the printer cannot print what it is quoted to print. One decimal, because the head widths that
+ * exist (52.8, 57.9) are not whole millimetres.
  */
 let warnedThisJob = false;
 
 export function warnIfWiderThanPrinter(layout: { width: number }, target: { widthBytes: number; dpi: number }): void {
   if (warnedThisJob) return;
-  const printableMm = printableWidthMm(target);
+  const printableMm = widthBytesToMm(target.widthBytes, target.dpi);
   // The layout is in label pixels, 8 per millimetre.
   if (layout.width / 8 <= printableMm) return;
   warnedThisJob = true;
   st().toast(
-    tr('labelTooWide', { label: Math.round(layout.width / 8), printer: Math.round(printableMm) }),
+    tr('labelTooWide', { label: Math.round(layout.width / 8), printer: formatMm(printableMm) }),
     'info',
   );
+}
+
+/**
+ * A millimetre length for a user-facing message: whole numbers stay whole, 52.8 stays 52.8.
+ *
+ * Rounding this to 53 made a 53 mm label on a 52.8 mm head say the printer prints 53 mm, i.e. it
+ * printed the very width the warning exists to report as clipped.
+ */
+function formatMm(mm: number): string {
+  return String(Math.round(mm * 10) / 10);
 }
 
 /** Reset the once-per-job warning latch. Called at the start of every print job. */

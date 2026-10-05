@@ -80,13 +80,15 @@ Bluetooth and USB printing use the **Web Bluetooth** and **WebUSB** APIs, which 
 **only in Chrome or Edge**, and **only in a secure context** — HTTPS, or
 `http://localhost`. That is why the container serves the app over HTTPS.
 
-**On a Mac, the app runs but cannot print.** Neither Safari nor Chrome on macOS
-implements Web Bluetooth or WebUSB — they are missing from the platform, not switched
-off. There is no AirPrint API for a browser to fall back on, so this is not something
-the app can work around. Everything else works: designing, the CSV template table, and
-export to PNG, PDF, JSON or CSV. The connect options are simply absent from the menu
-and a note explains why. The container itself runs on a Mac under Docker Desktop
-(the arm64 image is published); it is the browser that cannot reach the printer.
+**On a Mac, which browsers can print.** Safari does not implement Web Bluetooth or WebUSB
+— they are missing from that browser, not switched off — so the connect options are
+absent from the menu and a note explains why. **Chrome and Edge on macOS do implement
+both**, and the app detects them by feature detection alone (`'bluetooth' in navigator`),
+so printing works there exactly as it does on Windows, Linux and Android. There is no
+AirPrint fallback, so a browser without the APIs cannot be helped. Everything else —
+designing, the CSV template table, and export to PNG, PDF, JSON or CSV — works
+everywhere. The container itself runs on a Mac under Docker Desktop (the arm64 image is
+published); the browser is what decides whether printing is possible.
 
 Printing works from Chrome or Edge on Windows, Linux and Android. It does not work
 from Safari on macOS, iOS or iPadOS, which ship no Web Bluetooth implementation.
@@ -207,7 +209,7 @@ npm run typecheck
 
 ### Tests
 
-**1239 tests** across 52 files — 1221 run here, and 18 more are the nginx
+**1248 tests** across 53 files — 1230 run here, and 18 more are the nginx
 routing tests, which skip themselves when nginx is not installed and run on CI.
 Many are **golden tests**: they compare this rewrite's output byte-for-byte
 against a frozen copy of the original implementation in `tests/legacy/`, so a
@@ -215,7 +217,7 @@ refactor cannot quietly change what reaches the paper.
 
 The count moves as the suite grows, and `npx vitest list` under-reports it (it
 skips the jsdom project). Read it off the last line of `npm test` instead:
-`Tests  1221 passed | 18 skipped (1239)`.
+`Tests  1230 passed | 18 skipped (1248)`.
 
 `npm run typecheck` and `npm run build` are separate; CI runs all three before
 anything is published. Note that `npm test` alone does **not** compute coverage —

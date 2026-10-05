@@ -150,11 +150,20 @@ export function alignmentOf(cfg: ResolvedConfig): Alignment {
  * suffix was therefore right for every 203 DPI entry by coincidence and wrong for all of them
  * otherwise — the M02 Pro read "78mm" when the paper is 53 mm.
  */
+/**
+ * The millimetre length of a print head, unrounded.
+ *
+ * One conversion for the whole app: paperWidthMm() rounds it for display, and the too-wide warning
+ * compares and shows it from here, so the number compared and the number quoted can no longer drift.
+ */
+export function widthBytesToMm(widthBytes: number, dpi: number): number {
+  return (widthBytes * 8 * 25.4) / (dpi || 203);
+}
+
 export function paperWidthMm(cfg: ResolvedConfig): number | null {
   const bytes = cfg.width;
   if (bytes === null) return null;
-  const dpi = cfg.dpi || 203;
-  return Math.round((bytes * 8 * 25.4) / dpi);
+  return Math.round(widthBytesToMm(bytes, cfg.dpi || 203));
 }
 
 export function describe(reg: PrinterRegistry, deviceName: string, model = 'auto'): string {
@@ -162,5 +171,5 @@ export function describe(reg: PrinterRegistry, deviceName: string, model = 'auto
   const def = cfg.definition;
   const mm = paperWidthMm(cfg);
   if (def) return def.name + (mm !== null ? ` (${mm}mm)` : '');
-  return `M-series (${mm ?? '—'})`;
+  return `M-series (${mm !== null ? `${mm}mm` : '—'})`;
 }

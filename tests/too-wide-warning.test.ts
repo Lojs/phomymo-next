@@ -42,10 +42,18 @@ describe('the too-wide warning converts through the printer DPI', () => {
   });
 
   it('the number it quotes is the real head width, not the byte count', () => {
+    // Quoted to one decimal (52.8), not rounded to 53: rounding it to the label's own width made
+    // the warning report the printer as able to print the width the warning exists to report as
+    // clipped. Never the byte count.
     warnIfWiderThanPrinter({ width: 60 * 8 }, { widthBytes: 78, dpi: 300 });
     const body = JSON.stringify(toasts()[0]);
     expect(body).not.toContain('78');
-    expect(body).toContain('53'); // 52.8 mm, rounded
+    expect(body).toContain('52.8');
+  });
+
+  it('a whole-millimetre head is still quoted as a whole number', () => {
+    warnIfWiderThanPrinter({ width: 45 * 8 }, { widthBytes: 40, dpi: 203 });
+    expect(JSON.stringify(toasts()[0])).toContain('40mm');
   });
 });
 
