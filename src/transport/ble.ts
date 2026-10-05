@@ -28,9 +28,14 @@ const QUERY_COMMANDS = {
 let sharedInstance: any = null;
 
 export class BLETransport {
-  // The four Web Bluetooth objects stay `any`: lib.dom types BluetoothRemoteGATTServer and the
-  // characteristic handles loosely, so naming a real type here would be a claim the compiler cannot
-  // check. The state below is ours, and is typed.
+  // Still `any`, and deliberately. @types/web-bluetooth is now installed and wired into tsconfig's
+  // `types` allowlist, so navigator.bluetooth and every requestDevice option ARE checked — that was
+  // the gap worth closing. These five handles are a different job: the transport stores null in them
+  // on disconnect, bolts its own _hasDisconnectHandler bookkeeping onto the device, and reads a
+  // DataView window the spec types but the runtime hands over loosely. Naming the spec types here
+  // turns ~20 honest `possibly null` and out-of-spec-property errors into non-null assertions, which
+  // would silence the compiler without making the code safer. Left as-is, and noted as the known
+  // remaining `any` rather than pretending otherwise.
   device: any;
   server: any;
   service: any;

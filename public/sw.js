@@ -11,19 +11,48 @@
  * as the device is online and only falls back to the cached shell when it is not.
  */
 
-const VERSION = 'phomymo-v1';
+const VERSION = 'phomymo-v2';
 const SHELL = `${VERSION}-shell`;
 const ASSETS = `${VERSION}-assets`;
 
 const SHELL_URLS = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
 
-/** Hashed by Vite, so a given name always means the same bytes. */
+/**
+ * Hashed by Vite, so a given name always means the same bytes.
+ *
+ * Only /assets/ qualifies. Icons live at /icons/ and are NOT content-hashed — a new release can
+ * replace icon-512.png under the same name — so they must not be treated as immutable.
+ */
 const isImmutableAsset = (url) =>
   url.pathname.startsWith('/assets/');
 
 /** Icons are NOT content-hashed, so they need revalidation. */
 const isIcon = (url) =>
   url.pathname.startsWith('/icons/');
+
+/**
+ * Drop cache entries no longer referenced by the shell.
+ *
+ * Hashed filenames change every release, so the ASSETS cache accumulated one dead entry per built
+ * chunk per deploy and nothing ever removed them: a year of updates leaves a browser holding
+ * megabytes of orphaned JavaScript. The cache names are versioned, so `activate` already discards
+ * the previous *release's* caches wholesale — but every orphaned entry inside the *current* release's
+ * cache survives, because the version never changes within a release. Trimming the ASSETS cache to
+ * its own keys on activate costs one list() and keeps the cache exactly as large as the build.
+ */
+const trimAssets = async () => {
+  const cache = await caches.open(ASSETS);
+  const keys = await cache.keys();
+  const keep = new Set(SHELL_URLS);
+  // Anything still cached under /assets/ may be in use by this very release; entries anywhere else
+  // were written by the icon path (which shares the cache) and are re-fetchable on demand.
+  for (const req of keys) {
+    const url = new URL(req.url);
+    if (isImmutableAsset(url)) keep.add(url.pathname);
+  }
+  const stale = keys.filter((req) => !keep.has(new URL(req.url).pathname));
+  await Promise.all(stale.map((req) => cache.delete(req)));
+};
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -36,6 +65,7 @@ self.addEventListener('activate', (event) => {
     caches
       .keys()
       .then((keys) => Promise.all(keys.filter((k) => !k.startsWith(VERSION)).map((k) => caches.delete(k))))
+      .then(trimAssets)
       .then(() => self.clients.claim()),
   );
 });
@@ -63,17 +93,20 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (isIcon(url)) {
-    // Icons are not content-hashed, so use network-first with cache fallback.
+    // Icons are not content-hashed, so use network-first with cache fallback. The cache write is
+    // inside the respondWith chain rather than a floating `caches.open(...).then(...)`: a promise
+    // the worker does not know about can be killed when the response resolves, which loses the
+    // entry silently.
     event.respondWith(
-      fetch(request)
-        .then((fresh) => {
-          if (fresh.ok) {
-            const copy = fresh.clone();
-            caches.open(ASSETS).then((cache) => cache.put(request, copy));
-          }
+      caches.open(ASSETS).then(async (cache) => {
+        try {
+          const fresh = await fetch(request);
+          if (fresh.ok) await cache.put(request, fresh.clone());
           return fresh;
-        })
-        .catch(async () => (await caches.match(request)) ?? Response.error()),
+        } catch {
+          return (await cache.match(request)) ?? Response.error();
+        }
+      }),
     );
     return;
   }
@@ -81,15 +114,15 @@ self.addEventListener('fetch', (event) => {
   // Navigations and the manifest: prefer the network, fall back to the cached shell offline.
   if (request.mode === 'navigate' || url.pathname === '/manifest.webmanifest') {
     event.respondWith(
-      fetch(request)
-        .then((fresh) => {
-          if (fresh.ok) {
-            const copy = fresh.clone();
-            caches.open(SHELL).then((cache) => cache.put(request, copy));
-          }
+      caches.open(SHELL).then(async (cache) => {
+        try {
+          const fresh = await fetch(request);
+          if (fresh.ok) await cache.put(request, fresh.clone());
           return fresh;
-        })
-        .catch(async () => (await caches.match(request)) ?? (await caches.match('/index.html')) ?? Response.error()),
+        } catch {
+          return (await cache.match(request)) ?? (await cache.match('/index.html')) ?? Response.error();
+        }
+      }),
     );
   }
 });
