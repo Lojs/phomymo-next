@@ -17,6 +17,18 @@ const ROOT = resolve(__dirname, '..');
 const source = readFileSync(resolve(ROOT, 'public/sw.js'), 'utf8');
 const ORIGIN = 'https://printer.example';
 
+/**
+ * The worker's own cache names, read from its source.
+ *
+ * They used to be written out here as `phomymo-v3-assets`, which meant every assertion below broke
+ * the moment the version moved — and it made the test a second place that had to know the version.
+ * The version is stamped per build now, so it cannot be a literal in a test either.
+ */
+const version = /const VERSION = '([^']+)'/.exec(source)?.[1];
+if (!version) throw new Error('public/sw.js has no VERSION to read');
+const ASSETS = `${version}-assets`;
+const SHELL = `${version}-shell`;
+
 /** One cache entry URL, as cache.keys() would report it. */
 const entryUrl = (path: string) => `${ORIGIN}${path}`;
 
@@ -24,7 +36,7 @@ const entryUrl = (path: string) => `${ORIGIN}${path}`;
 function harness(cached: string[], manifest: unknown) {
   // One entry set per cache name, seeded with everything the harness was given.
   const seeded = [...cached];
-  const store = new Map<string, Set<string>>([['phomymo-v3-assets', new Set(seeded.map(entryUrl))], ['phomymo-v3-shell', new Set(seeded.map(entryUrl))]]);
+  const store = new Map<string, Set<string>>([[ASSETS, new Set(seeded.map(entryUrl))], [SHELL, new Set(seeded.map(entryUrl))]]);
   const deleted: string[] = [];
 
   const cacheFor = (name: string) => ({
@@ -92,7 +104,7 @@ describe('the service worker, run for real', () => {
     );
     await h.activate();
 
-    const left = [...(h.store.get('phomymo-v3-assets') ?? [])].map((u) => u.replace(ORIGIN, ''));
+    const left = [...(h.store.get(ASSETS) ?? [])].map((u) => u.replace(ORIGIN, ''));
     expect(left).toContain('/assets/index-NEW.js');      // still used
     expect(left).not.toContain('/assets/index-OLD1.js'); // dead from an earlier release
     expect(left).not.toContain('/assets/index-OLD2.js');
@@ -101,28 +113,28 @@ describe('the service worker, run for real', () => {
   it('deletes a stale icon, since icons are revalidated rather than kept forever', async () => {
     const h = harness(['/icons/icon-512.png'], CURRENT);
     await h.activate();
-    expect([...(h.store.get('phomymo-v3-assets') ?? [])]).toHaveLength(0);
+    expect([...(h.store.get(ASSETS) ?? [])]).toHaveLength(0);
   });
 
   it('keeps everything when the manifest is unavailable, rather than breaking the app', async () => {
     // Over-large cache is a cost; deleting a file the running app needs is an outage.
     const h = harness(['/assets/index-OLD.js'], undefined);
     await h.activate();
-    expect([...(h.store.get('phomymo-v3-assets') ?? [])]).toHaveLength(1);
+    expect([...(h.store.get(ASSETS) ?? [])]).toHaveLength(1);
   });
 
   it('keeps everything when the manifest is malformed or empty', async () => {
     for (const bad of [{}, [], 'nonsense', null]) {
       const h = harness(['/assets/index-OLD.js'], bad);
       await h.activate();
-      expect([...(h.store.get('phomymo-v3-assets') ?? [])]).toHaveLength(1);
+      expect([...(h.store.get(ASSETS) ?? [])]).toHaveLength(1);
     }
   });
 
   it('never deletes a shell URL', async () => {
     const h = harness(['/index.html', '/manifest.webmanifest', '/icon.svg'], CURRENT);
     await h.activate();
-    const left = [...(h.store.get('phomymo-v3-assets') ?? [])].map((u) => u.replace(ORIGIN, ''));
+    const left = [...(h.store.get(ASSETS) ?? [])].map((u) => u.replace(ORIGIN, ''));
     expect(left).toEqual(expect.arrayContaining(['/index.html', '/manifest.webmanifest', '/icon.svg']));
   });
 });

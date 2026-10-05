@@ -11,7 +11,23 @@
  * as the device is online and only falls back to the cached shell when it is not.
  */
 
-const VERSION = 'phomymo-v3';
+/**
+ * The build's own identity, stamped in by the Vite plugin in `vite.config.ts` at build time.
+ *
+ * This must NOT be a hand-written constant. A browser installs a new service worker only when the
+ * bytes of this file change, and the build used to copy it verbatim — so two different releases
+ * shipped an identical worker, no update was ever installed, `activate` never ran, and the cache
+ * trim below was dead code in every deployment after the first. Measured before the fix: two builds
+ * with different app bundles both produced `sw.js` sha256 9b2641933d58a6f7.
+ *
+ * Deriving it from the build also removes the failure mode that a human forgets to bump it, which
+ * is what the old `phomymo-v3` literal relied on. The cache names embed this, so `activate` deletes
+ * the previous release's caches and a changed name is what makes the new worker take over.
+ *
+ * If the stamp is missing the build fails rather than shipping this token: an unstamped worker
+ * would keep one cache name forever, and the trim would silently stop running again.
+ */
+const VERSION = '__PHOMYMO_BUILD_ID__';
 const SHELL = `${VERSION}-shell`;
 const ASSETS = `${VERSION}-assets`;
 

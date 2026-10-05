@@ -157,11 +157,14 @@ describe('the service worker', () => {
     expect(sw).toMatch(/url\.origin !== self\.location\.origin/);
   });
 
-  it('bumps its version so an old worker cannot keep serving an old shell', () => {
-    // The cache names embed this, so activate only deletes caches from other versions. A worker
-    // update that changed the caching strategy without changing the name would find its own
-    // previous entries still valid and never re-fetch anything.
-    expect(sw).toMatch(/const VERSION = 'phomymo-v\d+'/);
+  it('takes its version from the build rather than a hand-written constant', () => {
+    // The cache names embed this, so activate only deletes caches from other versions, and a
+    // changed name is what makes a new worker take over. It used to be a literal a human had to
+    // remember to bump — and because the build copied sw.js verbatim, forgetting it meant the
+    // worker never updated at all and the trim below never ran in any deployment. It is now stamped
+    // per build by the plugin in vite.config.ts; tests/service-worker-stamp.test.ts runs two real
+    // builds and proves the bytes differ, which this source-text assertion cannot.
+    expect(sw).toMatch(/const VERSION = '__PHOMYMO_BUILD_ID__'/);
   });
 
   it('trims the asset cache instead of letting it grow forever', () => {
