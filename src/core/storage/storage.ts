@@ -101,9 +101,37 @@ export function saveDesign(name: string, design: Design): void {
   if (!write(KEYS.DESIGNS, all)) throw new Error('Failed to save design (storage full?)');
 }
 
+/**
+ * Load one saved design, repaired if it is damaged.
+ *
+ * allDesigns() checks only that each entry is an object, so a design whose `labelSize` was written
+ * as null — by a partial write, a hand-edited file, or an older build with a different shape — came
+ * back intact and went straight into the store. displayLayout() then read `.width` off null and
+ * threw on the first render, so opening that one design took the app down with no way back.
+ * loadAutosave() has repaired this for its own key since v1.0.11; a saved design needed the same.
+ */
 export const loadDesign = (name: string): Design | null => {
   const all = allDesigns();
-  return hasOwn(all, name) ? all[name] ?? null : null;
+  if (!hasOwn(all, name)) return null;
+  const raw = all[name];
+  if (!isRecord(raw)) return null;
+
+  const labelSize = isLabelSize(raw.labelSize)
+    ? clampLabelSize(raw.labelSize as LabelSize)
+    : { ...DEFAULT_LABEL_SIZE };
+  const elements = Array.isArray(raw.elements)
+    ? (raw.elements.filter(isElement) as LabelElement[])
+    : [];
+
+  const design: Design = { elements, labelSize };
+  if (raw.isTemplate) design.isTemplate = true;
+  if (Array.isArray(raw.templateFields)) {
+    design.templateFields = raw.templateFields.filter((f: unknown): f is string => typeof f === 'string');
+  }
+  if (Array.isArray(raw.templateData)) design.templateData = raw.templateData as Design['templateData'];
+  if (isRecord(raw.multiLabel)) design.multiLabel = raw.multiLabel as Design['multiLabel'];
+  if (typeof raw.savedAt === 'number') design.savedAt = raw.savedAt;
+  return design;
 };
 export const designExists = (name: string) => hasOwn(allDesigns(), name.trim());
 
@@ -373,3 +401,54 @@ const finiteOr = (v: unknown, d: number): number => (typeof v === 'number' && Nu
  * discovered to be gone at reload. Callers that can warn should check this.
  */
 export const saveAutosave = (d: Design): boolean => write(KEYS.AUTOSAVE, d);
+
+/**
+ * Keys whose value changed in ANOTHER tab.
+ *
+ * localStorage gives no notification to the tab that made a write, but every other tab on the same
+ * origin receives a `storage` event. That makes it the one place this app can learn that someone
+ * else — the second tab of the same browser, or the installed PWA window opened beside it — has
+ * written to the shared storage. Both the autosave and the saved-designs map are last-writer-wins
+ * with no lock, so without this the second tab's work vanishes silently; there is no conflict to
+ * merge here, only a fact the user needs to know.
+ *
+ * Returning a disposer keeps it testable: jsdom's window is shared across a test file, and a
+ * listener left attached would fire for the next test.
+ */
+const crossTabListeners = new Set<(key: string) => void>();
+
+/** Subscribe to writes made by another tab. Returns a function that unsubscribes. */
+export function onOtherTabWrite(fn: (key: string) => void): () => void {
+  crossTabListeners.add(fn);
+  return () => crossTabListeners.delete(fn);
+}
+
+/**
+ * Start listening for other tabs. Called once at startup.
+ *
+ * The keys are matched by prefix because the designs map is a single JSON blob under one key, so a
+ * rename or a new per-design key does not silently stop the warning.
+ */
+const WATCHED: readonly string[] = [KEYS.AUTOSAVE, KEYS.DESIGNS, KEYS.SETTINGS];
+
+function isWatched(key: string | null): boolean {
+  return !!key && WATCHED.some((k) => key === k || key.startsWith(k));
+}
+
+/** True when a `storage` event reports a write from another tab to a key we care about. */
+export function isForeignWrite(event: { key: string | null; storageArea?: unknown }): boolean {
+  // `storageArea` is null when the browser is clearing storage, and the event is not delivered in
+  // the tab that made the change, so anything arriving here came from elsewhere by definition.
+  return !!event.storageArea && isWatched(event.key);
+}
+
+export function startCrossTabWatch(target: Window = window): () => void {
+  if (typeof target.addEventListener !== 'function') return () => {};
+  const handler = (e: Event) => {
+    const ev = e as StorageEvent;
+    if (!isForeignWrite(ev)) return;
+    for (const fn of crossTabListeners) fn(ev.key!);
+  };
+  target.addEventListener('storage', handler);
+  return () => target.removeEventListener('storage', handler);
+}

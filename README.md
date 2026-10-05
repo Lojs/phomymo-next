@@ -104,6 +104,14 @@ works normally. This is a Windows behaviour, not a limit of this app.
 
 > **A self-signed certificate is enough to print, but not to install.**
 > The browser will warn once; click through it and the origin counts as secure, so
+>
+> Before you click through it, check the fingerprint. The container prints it
+> on every start (`docker logs phomymo`), and it also appears in your browser's
+> certificate viewer (the padlock, then "Connection is secure"). They should
+> match. This is the one thing standing between you and an imposter on your
+> network serving modified JavaScript under the same address — a warning you
+> cannot verify is not much of a warning.
+
 > Bluetooth and USB work. Installing as a PWA (Chrome refuses a service worker on an
 > origin whose certificate was accepted by clicking through) needs a certificate a
 > browser already trusts — see *Using your own certificate instead*, below.
@@ -218,7 +226,7 @@ npm run typecheck
 
 ### Tests
 
-**1300 tests** across 57 files — 1282 run here, and 18 more are the nginx
+**1322 tests** across 58 files — 1304 run here, and 18 more are the nginx
 routing tests, which skip themselves when nginx is not installed and run on CI.
 Many are **golden tests**: they compare this rewrite's output byte-for-byte
 against a frozen copy of the original implementation in `tests/legacy/`, so a
@@ -226,7 +234,7 @@ refactor cannot quietly change what reaches the paper.
 
 The count moves as the suite grows, and `npx vitest list` under-reports it (it
 skips the jsdom project). Read it off the last line of `npm test` instead:
-`Tests  1282 passed | 18 skipped (1300)`.
+`Tests  1304 passed | 18 skipped (1322)`.
 
 `npm run typecheck` and `npm run build` are separate; CI runs all three before
 anything is published. Note that `npm test` alone does **not** compute coverage —

@@ -1,5 +1,5 @@
 /**
- * The seven fixes in this batch, each pinned by a test that fails without it.
+ * Rendering and storage regressions, each pinned by a test that fails without it.
  *
  *  U1  Stage's pointer handler refused every event while editingId was set, even after the element
  *      being edited had been removed — a live canvas that took no input.

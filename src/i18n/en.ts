@@ -80,6 +80,8 @@ export const en = {
   printFailed: 'Print failed', printComplete: 'Print complete', printedCopies: 'Printed {n} copies', sending: 'Sending {pct}%',
   connectFirst: 'Connect to a printer first',
   modelUnanswered: 'No printer model was chosen, so the print was cancelled. Open the printer list and pick your model.',
+  changedElsewhere: 'Your work was changed in another window. Save this design before switching, or the other version will win.',
+  storageChangedElsewhere: 'Saved designs were changed in another window.',
   // printers manager
   printersTitle: 'Printer definitions', builtin: 'Built-in', customPrinter: 'Custom', addPrinter: 'Add printer', editPrinter: 'Edit printer',
   printerId: 'ID', printerName: 'Name', protocol: 'Protocol', widthBytes: 'Width (bytes)', dpi: 'DPI', alignment: 'Alignment',

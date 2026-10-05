@@ -1,5 +1,5 @@
 /**
- * Defects D3, D5, D6 and D8 from the v1.0.18 full review.
+ * The import boundary and what a printer may report: image sources, size limits, reported values.
  *
  *  D3  An imported image element accepted any string as imageData, including a remote URL, so a
  *      hostile design file could make the browser contact an attacker's server with the victim's

@@ -1,5 +1,5 @@
 /**
- * N4 from the v1.0.16 review — input hardening that was left half done.
+ * Input hardening: protocol byte fields, multi-label geometry, export canvas, import size limit.
  *
  *  - m04/m110 clamped density but CMD.DENSITY, HEAT_SETTINGS, LINE_SPACING and tsplDensity took the
  *    raw value. A NaN became 0 in the Uint8Array and a value past 255 wrapped round, so any caller

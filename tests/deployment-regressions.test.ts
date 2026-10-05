@@ -120,10 +120,17 @@ describe('docker/entrypoint.sh', () => {
   const hasOpenssl = spawnSync('openssl', ['version']).status === 0 && spawnSync('perl', ['-v']).status === 0;
   let dir: string;
 
-  function run(domain: string) {
-    dir = mkdtempSync(join(tmpdir(), 'phomymo-ep-'));
+  /**
+   * Run the entrypoint against a throwaway directory.
+   *
+   * `reuse` keeps the certificate from a previous call, so a test can start the container twice and
+   * observe what the second start prints — which is the only way to check that the fingerprint is
+   * printed unconditionally rather than only when a certificate is generated.
+   */
+  function run(domain: string, reuse = false) {
+    if (!reuse) dir = mkdtempSync(join(tmpdir(), 'phomymo-ep-'));
     const bin = join(dir, 'bin');
-    mkdirSync(bin);
+    if (!reuse) mkdirSync(bin);
     writeFileSync(join(bin, 'envsubst'), String.raw`#!/bin/sh
 exec perl -pe 's/\$\{(\w+)\}/$ENV{$1}/ge'
 `);
@@ -155,6 +162,37 @@ exec perl -pe 's/\$\{(\w+)\}/$ENV{$1}/ge'
       expect(r.status, bad).toBe(1);
       expect(r.stderr, bad).toContain('invalid characters');
     }
+  });
+
+  // 5.3 from the v1.0.18 review. This runs the script with `sh` and reads its real output, so it
+  // fails if the branch that prints the fingerprint is removed — the text-based entrypoint assertions
+  // the reviewer mutation-tested did not.
+  it.skipIf(!hasOpenssl)('prints the certificate fingerprint, so a warning can be verified', () => {
+    const { r } = run('localhost');
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/fingerprint/i);
+
+    // The printed value must be the real one, not a placeholder: compare it with what openssl says.
+    const real = spawnSync('openssl', [
+      'x509', '-in', join(dir, 'certs/cert.pem'), '-noout', '-fingerprint', '-sha256',
+    ], { encoding: 'utf8' }).stdout;
+    const digest = real.split('=')[1]?.trim();
+    expect(digest).toBeTruthy();
+    expect(r.stdout.replace(/\s+/g, '')).toContain(digest!.replace(/\s+/g, ''));
+  });
+
+  it.skipIf(!hasOpenssl)('prints it on every start, not only when it generates one', () => {
+    // A certificate that already exists — the user's own, or one from a previous start — is exactly
+    // the case worth checking later, and that path generates nothing. So a print guarded by the
+    // generation branch would never appear. Two real starts, same certificate on disk.
+    run('localhost');
+    const certBefore = readFileSync(join(dir, 'certs/cert.pem'), 'utf8');
+    const { r: second } = run('localhost', true);
+    expect(second.status, second.stderr).toBe(0);
+    // Nothing was regenerated, and the fingerprint was printed anyway.
+    expect(readFileSync(join(dir, 'certs/cert.pem'), 'utf8')).toBe(certBefore);
+    expect(second.stdout).toMatch(/fingerprint/i);
+    expect(second.stdout).toMatch(/[0-9A-F]{2}(:[0-9A-F]{2}){10,}/);
   });
 
   it.skipIf(!hasOpenssl)('reads the template from a different directory than it writes to', () => {

@@ -1,5 +1,5 @@
 /**
- * Findings N1, N2 and N3 from the v1.0.16 review.
+ * The label width warning, the printer description, and the README's platform claims.
  *
  *  N1  The README claimed neither Safari nor Chrome on macOS implements Web Bluetooth / WebUSB.
  *      Chrome and Edge on macOS do, and the app's own availability is plain feature detection, so

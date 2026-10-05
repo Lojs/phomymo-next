@@ -92,6 +92,20 @@ case "${PHOMYMO_HTTPS_PORT:-}" in
 esac
 export PHOMYMO_DOMAIN PHOMYMO_REDIRECT_PORT
 
+# Print the certificate's fingerprint on every start.
+#
+# The first visit to this app is over a self-signed certificate, so the browser's warning is the ONLY
+# thing standing between the owner and a LAN attacker who serves modified JavaScript under the same
+# name. Clicking through a warning you cannot verify is not much of a defence — the owner had no way
+# to tell our certificate from a substituted one. The fingerprint is what makes the click meaningful:
+# compare it against the one in the browser's certificate viewer, and a mismatch is visible.
+#
+# Printed on every start, not only on generation, because a certificate the user supplied is exactly
+# the case worth being able to check later.
+# The line openssl prints is "sha256 Fingerprint=AA:BB:..."; the digest is the part after the '='.
+echo "[phomymo] Certificate fingerprint: $(fingerprint | sed 's/^.*=//')"
+echo "[phomymo] Compare it with the certificate viewer in your browser to confirm this is your app."
+
 # Bluetooth/USB printing requires a secure context, so HTTP just redirects to HTTPS.
 envsubst '${PHOMYMO_DOMAIN} ${PHOMYMO_REDIRECT_PORT}' < "$CONF_TEMPLATE" > "$CONF_OUT"
 

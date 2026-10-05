@@ -73,6 +73,8 @@ export const ar: Record<Key, string> = {
   printFailed: 'فشلت الطباعة', printComplete: 'اكتملت الطباعة', printedCopies: 'تمت طباعة {n} نسخ', sending: 'جارٍ الإرسال {pct}%',
   connectFirst: 'اتصل بالطابعة أولًا',
   modelUnanswered: 'لم تختر موديل الطابعة، لذلك أُلغيت الطباعة. افتح قائمة الطابعات واختر الموديل.',
+  changedElsewhere: 'تم تعديل عملك في نافذة أخرى. احفظ هذا التصميم قبل التبديل، وإلا فستفوز النسخة الأخرى.',
+  storageChangedElsewhere: 'تم تعديل التصاميم المحفوظة في نافذة أخرى.',
   printersTitle: 'تعريفات الطابعات', builtin: 'مدمجة', customPrinter: 'مخصصة', addPrinter: 'إضافة طابعة', editPrinter: 'تعديل الطابعة',
   printerId: 'المعرّف', printerName: 'الاسم', protocol: 'البروتوكول', widthBytes: 'العرض (بايت)', dpi: 'DPI', alignment: 'المحاذاة',
   rotated: 'جانبية (مدوّرة)', tapePrinter: 'طابعة شريط', namePatterns: 'بادئات اسم البلوتوث (مفصولة بفواصل)',
