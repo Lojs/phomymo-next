@@ -269,7 +269,10 @@ export function parseCSV(csv: string): CsvResult {
   const rows = parseRows(text, delim);
   if (rows.length === 0) return { headers: [], records: [], errors: ['Empty CSV file'] };
 
-  const headers = rows[0].values;
+  // The guard is removed from the header row too, or a field name exported as `'=cmd` would come
+  // back as the literal `'=cmd` and stop matching the template that refers to it. Export and import
+  // have to agree about the guard on every row, not just the data rows.
+  const headers = rows[0].values.map(stripFormulaGuard);
   if (headers.length === 0 || headers.every((h) => h === '')) {
     return { headers: [], records: [], errors: ['No headers found in CSV'] };
   }
@@ -315,25 +318,42 @@ export function parseCSV(csv: string): CsvResult {
  */
 const FORMULA_LEAD = /^[=+\-@\t\r]/;
 
-/** Escape a cell for CSV, neutralising a leading formula character. */
+/**
+ * Escape a cell for CSV, neutralising a leading formula character.
+ *
+ * A value that already begins with an apostrophe is escaped by doubling that apostrophe, so the
+ * reader can tell the user's own quote from the guard added here. Without it the literal text
+ * `'=SUM(1)` came back as `=SUM(1)`: a guard that silently edits the user's data is its own kind of
+ * corruption, and the round trip was only lossless for values nobody had needed to guard by hand.
+ */
 export function csvCell(value: unknown): string {
   const v = value === null || value === undefined ? '' : String(value);
-  const safe = FORMULA_LEAD.test(v) ? `'${v}` : v;
+  const safe = v.startsWith("'") || FORMULA_LEAD.test(v) ? `'${v}` : v;
   return /[",\n\r]/.test(safe) ? '"' + safe.replace(/"/g, '""') + '"' : safe;
 }
 
-/** Remove the guard csvCell added, so an exported-then-imported file reads back unchanged. */
+/**
+ * Undo exactly one level of what csvCell added, so an exported-then-imported file reads back
+ * unchanged.
+ *
+ * Order matters: a doubled apostrophe is the escape for a literal one and must be tested first, or
+ * the value `''` would lose a quote on every round trip.
+ */
 export function stripFormulaGuard(value: string): string {
+  if (value.startsWith("''")) return value.slice(1);
   return value.startsWith("'") && FORMULA_LEAD.test(value.slice(1)) ? value.slice(1) : value;
 }
 
 export function toCSV(headers: string[], records: TemplateRecord[]): string {
+  // Every cell goes through csvCell, headers included. They used to be written with a plain CSV
+  // escaper, so a field name beginning with a formula character was the one row that reached Excel
+  // unguarded — and field names come from the design file, which an imported template controls.
+  //
   // `r[h] || ''` turned a legitimate 0 into an empty cell, so a quantity column exported blanks for
   // every zero row and a round-trip lost the data. Only null/undefined/'' are genuinely empty; 0 and
   // false are values.
-  const esc = (v: string) => (/[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v);
   return [
-    headers.map(esc).join(','),
+    headers.map((h) => csvCell(h)).join(','),
     ...records.map((r) => headers.map((h) => csvCell(r[h])).join(',')),
   ].join('\n');
 }

@@ -77,6 +77,51 @@ describe('D4: an exported cell cannot become a live spreadsheet formula', () => 
 });
 
 
+describe('E3: the guard covers the header row, and a literal quote survives', () => {
+  it('guards a header that would be a formula', () => {
+    // Field names come from the design file, so an imported template controls them. The header row
+    // used a plain CSV escaper and was the one row that reached Excel unguarded.
+    const csv = toCSV(['=cmd|calc', 'Name'], [] as never);
+    expect(csv).toBe("'=cmd|calc,Name");
+    expect(csv.split('\n')[0]).not.toMatch(/^=/);
+  });
+
+  it('reads a guarded header back unchanged', () => {
+    // Export and import have to agree about the guard on every row. Guarding headers on the way out
+    // without stripping on the way in would have replaced the bug with its mirror image: a field
+    // name would gain an apostrophe on every round trip and stop matching the template.
+    const headers = ['=cmd', 'Name', 'a,b', '@handle'];
+    expect(parseCSV(toCSV(headers, [] as never)).headers).toEqual(headers);
+  });
+
+  it('a value the user typed with a leading apostrophe round-trips', () => {
+    // These came back edited. `'=SUM(1)` lost its quote, because import stripped any leading quote
+    // followed by a formula character — including the user's own.
+    for (const v of ["'=SUM(1)", "'-5", "'abc", "''", "'", "'@handle", "'+964"]) {
+      expect(stripFormulaGuard(csvCell(v))).toBe(v);
+    }
+  });
+
+  it('escapes a literal quote by doubling it, and undoes exactly one level', () => {
+    expect(csvCell("'abc")).toBe("''abc");
+    expect(stripFormulaGuard("''abc")).toBe("'abc");
+    // The doubled form is tested first, so a value of just two quotes does not lose one per cycle.
+    expect(stripFormulaGuard(csvCell("''"))).toBe("''");
+  });
+
+  it('a full cycle keeps a leading-quote value intact', () => {
+    const v = "'=SUM(1)";
+    const back = parseCSV(toCSV(['Note'], [{ Note: v }] as never));
+    expect(back.errors).toEqual([]);
+    expect(back.records[0].Note).toBe(v);
+  });
+
+  it('a header value the user typed with a leading quote also round-trips', () => {
+    const headers = ["'=qty", 'Name'];
+    expect(parseCSV(toCSV(headers, [] as never)).headers).toEqual(headers);
+  });
+});
+
 describe('a damaged saved design is repaired on load, not handed to the renderer', () => {
   const storage = () => import('../src/core/storage/storage');
 

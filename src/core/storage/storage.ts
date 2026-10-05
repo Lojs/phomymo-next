@@ -190,9 +190,15 @@ const isElement = (v: unknown): boolean => {
   // request, but `npm run dev`, `npm run preview` and any other host serving the built files have no
   // such policy, and merely opening the design would contact the attacker's server with the victim's
   // IP and a query string of their choosing. Require the data: form so the pixels are always inline.
+  //
+  // The requirement is "no network URL", so any data: URL is accepted — not only `data:image/`. A
+  // file the picker reports with an empty MIME type is read as `data:application/octet-stream;...`,
+  // and requiring the image/ prefix made such an element vanish on the next load, with no message:
+  // it displayed and printed, then was silently filtered out. Browsers sniff the type from the bytes
+  // of a data: URL, so the pixels were never the problem.
   if (t === 'image') {
     const src = e.imageData;
-    if (typeof src !== 'string' || !src.startsWith('data:image/')) return false;
+    if (typeof src !== 'string' || !src.startsWith('data:')) return false;
   }
   return true;
 };

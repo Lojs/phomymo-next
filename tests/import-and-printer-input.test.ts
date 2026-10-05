@@ -17,7 +17,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { parseDesignJSON } from '../src/core/storage/storage';
+import { loadDesign, parseDesignJSON } from '../src/core/storage/storage';
 
 /**
  * A minimal valid design file, with one element of the given type and fields.
@@ -70,6 +70,44 @@ describe('D3: an imported image element may only carry inline pixels', () => {
 
   it('leaves other element types alone — a text element has no imageData', () => {
     expect(imports({ type: 'text', text: 'hello' })).toBe(true);
+  });
+});
+
+describe('E2: an image whose data URL has a non-image MIME type survives', () => {
+  /**
+   * A file the picker reports with an empty MIME type is read by FileReader as
+   * `data:application/octet-stream;...` — Chrome behaviour. The guard used to require the literal
+   * prefix `data:image/`, so such an element displayed and printed and then vanished on the next
+   * load, with no message. The requirement was always "no network URL"; any data: URL satisfies it,
+   * and browsers sniff the type from the bytes.
+   */
+  const octet = 'data:application/octet-stream;base64,iVBORw0KGgo=';
+
+  it('is accepted on import', () => {
+    expect(imports({ type: 'image', imageData: octet })).toBe(true);
+  });
+
+  it('is still rejected when it points at a network URL', () => {
+    // The guard exists for this, and widening it to any data: URL must not widen it to anything.
+    expect(imports({ type: 'image', imageData: 'https://evil.example/pixel.png?id=victim' })).toBe(false);
+  });
+
+  it('survives a save-and-reload instead of being filtered out silently', () => {
+    const map = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: {
+        getItem: (k: string) => map.get(k) ?? null,
+        setItem: (k: string, v: string) => void map.set(k, v),
+        removeItem: (k: string) => void map.delete(k),
+      },
+      configurable: true,
+      writable: true,
+    });
+    const file = JSON.parse(designWith({ type: 'image', imageData: octet }));
+    map.set('phomymo_designs', JSON.stringify({ hostile: { elements: file.elements, labelSize: file.labelSize } }));
+    // Before the fix this came back with 0 elements: isElement() rejected the data URL, and
+    // loadDesign() filters silently, so the picture simply was not there any more.
+    expect(loadDesign('hostile')?.elements).toHaveLength(1);
   });
 });
 
