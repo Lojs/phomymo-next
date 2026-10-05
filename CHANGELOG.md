@@ -20,7 +20,10 @@ carry the reasoning in full; this file is the index.
   last-writer-wins, so work could disappear silently.
 - Exported CSV cells are neutralised against spreadsheet formula injection, and the guard is removed
   again on import so a round trip is lossless.
-- Dependabot, so the pinned GitHub Actions and npm dependencies stay current.
+- ~~Dependabot, so the pinned GitHub Actions and npm dependencies stay current.~~ Removed in
+  1.0.21: it opened a branch and a pull request for every action, and a repository with one branch
+  is easier to reason about than one with six. The Actions stay pinned to the commit SHAs recorded
+  as comments in the workflow, and `scripts/resolve-action-sha.mjs` re-resolves them by hand.
 - This file.
 
 ### Fixed

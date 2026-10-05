@@ -28,6 +28,12 @@ jobs:
       - name: تنزيل الكود
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # Every action above is pinned to a commit SHA rather than a tag. A tag is a mutable
+      # reference its owner can repoint, so `actions/checkout@v4` says nothing about which code
+      # actually ran; the SHA does, and the version is kept as a trailing comment so the pin stays
+      # auditable. Dependabot is deliberately NOT configured: it opened a branch and a pull request
+      # per action, and one branch is easier to reason about than six. To move a pin, re-resolve it
+      # with:  node scripts/resolve-action-sha.mjs actions/checkout v4
       - name: تجهيز Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
