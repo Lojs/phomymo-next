@@ -141,7 +141,14 @@ function drawText(ctx: Ctx, el: TextElement, width: number, height: number): voi
 
 // ---- image ----------------------------------------------------------------------
 
-function filterString(el: ImageElement): string | null {
+/**
+ * The CSS filter that applies an image element's brightness/contrast to a canvas draw.
+ *
+ * Exported because the dithering thumbnails in the element panel must show the *same* adjustment
+ * the print will apply. Two copies of this formula would drift, and the preview would then promise
+ * a picture the printer does not deliver.
+ */
+export function imageFilterString(el: ImageElement): string | null {
   const b = el.brightness || 0;
   const c = el.contrast || 0;
   return b !== 0 || c !== 0 ? `brightness(${1 + b / 100}) contrast(${1 + c / 100})` : null;
@@ -161,7 +168,7 @@ function ditherPreview(img: HTMLImageElement, el: ImageElement): HTMLCanvasEleme
   cv.width = w;
   cv.height = h;
   const c = cv.getContext('2d', { willReadFrequently: true })!;
-  const f = filterString(el);
+  const f = imageFilterString(el);
   if (f) c.filter = f;
   c.drawImage(img, 0, 0, w, h);
   c.filter = 'none';
@@ -191,7 +198,7 @@ function drawImage(ctx: Ctx, el: ImageElement, width: number, height: number, op
     ctx.restore();
     return;
   }
-  const f = filterString(el);
+  const f = imageFilterString(el);
   if (f) ctx.filter = f;
   ctx.drawImage(img, -width / 2, -height / 2, width, height);
   if (f) ctx.filter = 'none';

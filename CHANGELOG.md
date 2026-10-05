@@ -8,6 +8,30 @@ actually does now.
 The commits are the source of truth for anything more granular. Commit messages in this repository
 carry the reasoning in full; this file is the index.
 
+## 1.0.23
+
+### Changed
+- **The image dithering control now says what each choice does, and shows you the result.** It used
+  to list four algorithm names — "None (threshold)", "Ordered (Bayer)", "Atkinson",
+  "Floyd–Steinberg" — which told you nothing about which one suited a photograph. The choices are
+  now **Grayscale 256**, **Standard**, **Light dots** and **Black & white**, in that order (the one
+  meant for a photo first), each with its algorithm name kept as a small hint beside it so nothing
+  is lost. The trigger names the mode that will actually print: an image with no explicit choice
+  prints as Floyd–Steinberg, so it reads "Grayscale 256" rather than "None".
+- Each choice carries a **52×34 preview of your own image**, dithered with that mode. The thumbnail
+  is produced by the same 1-bit rasteriser the printer uses, with the element's brightness and
+  contrast applied, so it is the print rather than an impression of it.
+
+### Fixed
+- **A menu opened by a control low in a short window could render its last rows below the viewport
+  with no way to reach them.** Measured: the four-row dithering picker opened at y=403 in a 577px
+  window, ended at 613, and its fourth option could not be clicked at all. A native `<select>` is
+  repositioned by the browser; a popup built from a div is not, so `MenuButton` now measures after
+  mount and opens upward when it would overflow and there is room above. This applies to every menu
+  in the app, not only this one.
+- A menu item whose thumbnail had not loaded yet (`null`, as opposed to no thumbnail at all) made
+  the menu fall back to its narrow width, so the pictures arrived into a menu sized for text alone.
+
 ## 1.0.22
 
 ### Fixed

@@ -49,7 +49,7 @@ export const ar: Record<Key, string> = {
   qrData: 'محتوى QR', shapeType: 'الشكل', fill: 'التعبئة', stroke: 'الحد', strokeWidth: 'سمك الحد', cornerRadius: 'استدارة الزوايا',
   none: 'بدون', gray25: 'رمادي 25%', gray50: 'رمادي 50%', gray75: 'رمادي 75%',
   brightness: 'السطوع', contrast: 'التباين', dither: 'تدرج النقاط', lockAspect: 'الحفاظ على النسبة',
-  ditherNone: 'بدون (عتبة)', ditherOrdered: 'منتظم (Bayer)', ditherAtkinson: 'Atkinson', ditherFloyd: 'Floyd–Steinberg',
+  ditherGray: 'تدرّج رمادي 256', ditherStandard: 'قياسي', ditherLight: 'نقاط خفيفة', ditherBW: 'أبيض وأسود',
   zoom: 'التكبير', zoomIn: 'تكبير', zoomOut: 'تصغير', zoomFit: 'ملاءمة الشاشة', emptyStageTitle: 'الملصق فارغ',
   emptyStageBody: 'أضف نصًا أو صورة أو باركود أو رمز QR من شريط الأدوات.',
   templateTitle: 'بيانات القالب', fieldsHint: 'اكتب {{الاسم}} داخل النص أو الباركود أو QR ليُدمج حقل مع كل سجل.',

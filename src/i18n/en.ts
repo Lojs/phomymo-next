@@ -53,7 +53,7 @@ export const en = {
   qrData: 'QR content', shapeType: 'Shape', fill: 'Fill', stroke: 'Outline', strokeWidth: 'Outline width', cornerRadius: 'Corner radius',
   none: 'None', gray25: '25% gray', gray50: '50% gray', gray75: '75% gray',
   brightness: 'Brightness', contrast: 'Contrast', dither: 'Dithering', lockAspect: 'Keep proportions',
-  ditherNone: 'None (threshold)', ditherOrdered: 'Ordered (Bayer)', ditherAtkinson: 'Atkinson', ditherFloyd: 'Floyd–Steinberg',
+  ditherGray: 'Grayscale 256', ditherStandard: 'Standard', ditherLight: 'Light dots', ditherBW: 'Black & white',
   // stage
   zoom: 'Zoom', zoomIn: 'Zoom in', zoomOut: 'Zoom out', zoomFit: 'Fit to screen', emptyStageTitle: 'Your label is empty',
   emptyStageBody: 'Add text, an image, a barcode or a QR code from the toolbar.',

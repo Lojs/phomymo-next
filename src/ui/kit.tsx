@@ -1,4 +1,4 @@
-import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { Icon, type IconName } from './icons';
 import { useT } from '../i18n';
 
@@ -41,24 +41,62 @@ export function Button({ icon, children, variant = 'default', active, ...p }: {
  */
 export function MenuButton({ label, items, onPick, layout = 'list', icon }: {
   label: string;
-  items: { value: string; label: string; icon?: IconName }[];
+  /** `thumb: null` means "this item has a thumbnail that is not ready yet" — the row then holds
+   *  its height instead of reflowing when the picture arrives. `undefined` means no thumbnail. */
+  items: { value: string; label: string; icon?: IconName; thumb?: string | null; hint?: string }[];
   onPick: (value: string) => void;
   /** `grid` lays the items out two-per-row, for palettes too long to read as one column. */
   layout?: 'list' | 'grid';
   icon?: IconName;
 }) {
   const [open, setOpen] = useState(false);
+  const [flip, setFlip] = useState(false);
   const ref = useOutsideClose(open, () => setOpen(false));
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Open upward when the menu would fall off the bottom of the window.
+   *
+   * A native `<select>` is repositioned by the browser; a popup built from a div is not, so a menu
+   * opened by a control low in a short window rendered its last rows below the viewport with no way
+   * to scroll to them — the option was simply unreachable. Measuring after mount and before paint
+   * means the flip is not visible as a jump.
+   */
+  useLayoutEffect(() => {
+    if (!open) { setFlip(false); return; }
+    // `.menu-wrap` tightly wraps the trigger, and Button does not forward a ref, so the wrapper
+    // is the trigger's box.
+    const button = ref.current?.getBoundingClientRect();
+    const menu = menuRef.current?.getBoundingClientRect();
+    if (!button || !menu || menu.height === 0) return;
+    setFlip(menu.bottom > window.innerHeight && button.top > menu.height);
+  }, [open]);
+
   return (
     <div className="menu-wrap" ref={ref}>
       <Button variant="default" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
         {icon && <Icon name={icon} size={16} />}{label}<Icon name="chevron" size={14} />
       </Button>
       {open && (
-        <div className={`menu ${layout === 'grid' ? 'menu-shapes' : 'menu-field'}`} role="menu">
+        <div
+          ref={menuRef}
+          className={`menu ${layout === 'grid' ? 'menu-shapes' : items.some((i) => i.thumb !== undefined) ? 'menu-picker' : 'menu-field'}${flip ? ' menu-up' : ''}`}
+          role="menu"
+        >
           {items.map((it) => (
             <button key={it.value} role="menuitem" onClick={() => { setOpen(false); onPick(it.value); }}>
-              {it.icon && <Icon name={it.icon} size={16} />}{it.label}
+              {/* A thumbnail is a picture of the *result*, which is the only way to choose between
+                  four dot patterns without trying all four on paper. The hint keeps the algorithm
+                  name for anyone who wants it, without making it the thing you have to understand. */}
+              {it.thumb === undefined
+                ? it.icon && <Icon name={it.icon} size={16} />
+                : it.thumb === null
+                  ? <span className="menu-thumb menu-thumb-blank" aria-hidden="true" />
+                  : <img className="menu-thumb" src={it.thumb} alt="" width={52} height={34} />}
+              <span className="menu-text">
+                {it.label}
+                {it.hint && <span className="menu-hint">{it.hint}</span>}
+              </span>
             </button>
           ))}
         </div>

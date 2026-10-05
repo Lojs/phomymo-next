@@ -1,13 +1,14 @@
 import { extractFields } from '../core/template/template';
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../state/store';
 import { useT, type Key } from '../i18n';
 import { Button, Field, MenuButton, NumberInput, Section, Segmented, Select, Slider, Toggle } from './kit';
 import { LABEL_FONTS, isLocalFontAccessAvailable, queryLocalFontFamilies } from '../fonts';
 import { LIMITS } from '../core/printers/presets';
-import { MIN_SIZES, type BarcodeElement, type ImageElement, type LabelElement, type QRElement, type ShapeElement, type ShapeType, type TextElement } from '../core/model/elements';
+import { MIN_SIZES, type BarcodeElement, type DitherChoice, type ImageElement, type LabelElement, type QRElement, type ShapeElement, type ShapeType, type TextElement } from '../core/model/elements';
 import { SHAPES, STROKED_SHAPES } from './shapes';
-import { DITHER_FILLS, encodeBarcode } from '../core/render/draw';
+import { DITHER_FILLS, encodeBarcode, imageFilterString } from '../core/render/draw';
+import { pixelsToRaster } from '../core/raster/raster';
 import { replaceImageFile } from '../services/actions';
 
 const EXPRESSIONS = ['date', 'time', 'datetime', 'year', 'month', 'day', 'hour', 'minute'];
@@ -241,10 +242,91 @@ function ShapeSection({ el }: { el: ShapeElement }) {
   );
 }
 
+const THUMB_W = 52;
+const THUMB_H = 34;
+
+/**
+ * The dot patterns an image can be printed with, best for a photograph first.
+ *
+ * The plain names are what someone actually chooses between, and the hint keeps the algorithm's
+ * real name beside it — the previous labels were the algorithm names alone ("Ordered (Bayer)",
+ * "Floyd–Steinberg"), which told a user nothing about which one was right for a photo.
+ */
+const DITHER_CHOICES: { value: DitherChoice; label: Key; hint: string }[] = [
+  { value: 'floyd-steinberg', label: 'ditherGray', hint: 'Floyd–Steinberg' },
+  { value: 'ordered', label: 'ditherStandard', hint: 'Bayer' },
+  { value: 'atkinson', label: 'ditherLight', hint: 'Atkinson' },
+  { value: 'none', label: 'ditherBW', hint: 'threshold' },
+];
+
+/**
+ * One miniature of how the image prints with `mode`.
+ *
+ * This runs the real rasteriser on a real downscaled copy, so the thumbnail is the print rather
+ * than an impression of it: white paper, the element's own brightness/contrast applied, then the
+ * same 1-bit packing the printer receives, painted back as black and white.
+ */
+function renderDitherThumb(img: HTMLImageElement, mode: DitherChoice, filter: string | null): string | undefined {
+  const cv = document.createElement('canvas');
+  cv.width = THUMB_W;
+  cv.height = THUMB_H;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return undefined;
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, THUMB_W, THUMB_H);
+  if (filter) ctx.filter = filter;
+  const scale = Math.min(THUMB_W / img.naturalWidth, THUMB_H / img.naturalHeight);
+  const dw = img.naturalWidth * scale;
+  const dh = img.naturalHeight * scale;
+  ctx.drawImage(img, (THUMB_W - dw) / 2, (THUMB_H - dh) / 2, dw, dh);
+  ctx.filter = 'none';
+
+  const px = ctx.getImageData(0, 0, THUMB_W, THUMB_H).data;
+  const widthBytes = Math.ceil(THUMB_W / 8);
+  const bits = pixelsToRaster(px, THUMB_W, THUMB_H, widthBytes, 'left', mode);
+  const out = ctx.createImageData(THUMB_W, THUMB_H);
+  for (let y = 0; y < THUMB_H; y++) {
+    for (let x = 0; x < THUMB_W; x++) {
+      const black = (bits[y * widthBytes + (x >> 3)] >> (7 - (x & 7))) & 1;
+      const p = (y * THUMB_W + x) * 4;
+      out.data[p] = out.data[p + 1] = out.data[p + 2] = black ? 0 : 255;
+      out.data[p + 3] = 255;
+    }
+  }
+  ctx.putImageData(out, 0, 0);
+  try {
+    return cv.toDataURL('image/png');
+  } catch {
+    return undefined;          // a tainted canvas cannot be exported; the label still carries meaning
+  }
+}
+
+/** All four thumbnails for one image, decoded once. */
+function useDitherThumbs(src: string, filter: string | null): Partial<Record<DitherChoice, string>> {
+  const [thumbs, setThumbs] = useState<Partial<Record<DitherChoice, string>>>({});
+  useEffect(() => {
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      const next: Partial<Record<DitherChoice, string>> = {};
+      for (const choice of DITHER_CHOICES) next[choice.value] = renderDitherThumb(img, choice.value, filter);
+      setThumbs(next);
+    };
+    img.src = src;
+    return () => { cancelled = true; };
+  }, [src, filter]);
+  return thumbs;
+}
+
 function ImageSection({ el }: { el: ImageElement }) {
   const t = useT();
   const p = useStore((s) => s.patchSelected);
   const input = useRef<HTMLInputElement>(null);
+  // An image with no explicit choice prints as 'auto', which resolves to Floyd–Steinberg for a
+  // photograph, so the trigger must name the thing the printer will actually do.
+  const current = el.dither ?? 'floyd-steinberg';
+  const thumbs = useDitherThumbs(el.imageData, imageFilterString(el));
   return (
     <Section title={t('addImage')}>
       <div className="row">
@@ -254,10 +336,11 @@ function ImageSection({ el }: { el: ImageElement }) {
       <Field label={t('brightness')}><Slider value={el.brightness ?? 0} min={-100} max={100} onChange={(v) => p({ brightness: v }, 'br')} /></Field>
       <Field label={t('contrast')}><Slider value={el.contrast ?? 0} min={-100} max={100} onChange={(v) => p({ contrast: v }, 'ct')} /></Field>
       <Field label={t('dither')}>
-        <Select value={el.dither ?? 'floyd-steinberg'} onChange={(v) => p({ dither: v as ImageElement['dither'] })}>
-          <option value="none">{t('ditherNone')}</option><option value="ordered">{t('ditherOrdered')}</option>
-          <option value="atkinson">{t('ditherAtkinson')}</option><option value="floyd-steinberg">{t('ditherFloyd')}</option>
-        </Select>
+        <MenuButton
+          label={t((DITHER_CHOICES.find((d) => d.value === current) ?? DITHER_CHOICES[0]).label)}
+          items={DITHER_CHOICES.map((d) => ({ value: d.value, label: t(d.label), hint: d.hint, thumb: thumbs[d.value] ?? null }))}
+          onPick={(v) => p({ dither: v as DitherChoice })}
+        />
       </Field>
       <Toggle checked={el.lockAspectRatio} onChange={(v) => p({ lockAspectRatio: v })} label={t('lockAspect')} />
     </Section>
