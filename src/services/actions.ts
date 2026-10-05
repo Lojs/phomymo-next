@@ -146,10 +146,20 @@ export async function addImageFile(file: File): Promise<void> {
     const w = Math.max(30, Math.round(img.width * scale));
     const h = Math.max(30, Math.round(img.height * scale));
     st().add(createImage(img.dataUrl, { ...centred(w, h), naturalWidth: img.width, naturalHeight: img.height }));
-  } catch {
-    st().toast(tr('errorImage'), 'error');
+  } catch (e) {
+    st().toast(importError(e), 'error');
   }
 }
+
+/**
+ * The message for a failed import.
+ *
+ * A RangeError is this app's own "that file is too large" refusal, and its message names the file
+ * and the limit — the one sentence that tells the user what to do differently. Swallowing it for
+ * the generic "could not read that image" is how a 25 MB limit looked like a corrupt file.
+ */
+const importError = (e: unknown): string =>
+  e instanceof RangeError ? e.message : tr('errorImage');
 
 export async function replaceImageFile(id: string, file: File): Promise<void> {
   try {
@@ -160,8 +170,8 @@ export async function replaceImageFile(id: string, file: File): Promise<void> {
       const ratio = img.height > 0 ? img.width / img.height : 1;
       return { imageData: img.dataUrl, naturalWidth: img.width, naturalHeight: img.height, height: Math.max(30, Math.round(el.width / ratio)) } as Partial<LabelElement>;
     });
-  } catch {
-    st().toast(tr('errorImage'), 'error');
+  } catch (e) {
+    st().toast(importError(e), 'error');
   }
 }
 

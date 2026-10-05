@@ -60,8 +60,14 @@ export function DesignsDialog() {
             if (result.ok) { setVersion((v) => v + 1); close(); return; }
             if (!result.conflict) return;                      // already reported the error
             if (!window.confirm(t('confirmOverwriteName', { name: result.conflict }))) return;
-            const parsed = await readDesignFile(f);
-            if (importDesignAs(parsed.name, parsed.design)) { setVersion((v) => v + 1); close(); }
+            // Guarded: readDesignFile can now refuse an oversized file, and this call sits outside
+            // importDesignFile's own try/catch, so an uncaught throw would land in the event handler.
+            try {
+              const parsed = await readDesignFile(f);
+              if (importDesignAs(parsed.name, parsed.design)) { setVersion((v) => v + 1); close(); }
+            } catch (err) {
+              useStore.getState().toast(err instanceof RangeError ? err.message : t('errorFile'), 'error');
+            }
           }}
         />
       </div>

@@ -315,6 +315,21 @@ describe('choosing a printer profile after connecting', () => {
       expect(printing.isConnected()).toBe(false);
     });
 
+    it('actually closes the link, not just the state', async () => {
+      // D1: this path nulled `transport` and reported "disconnected" without ever calling
+      // disconnect(). The radio link stayed up, so the printer stayed occupied by this tab and the
+      // next Connect hit `if (this.isConnected()) return true` inside _connect(), silently reusing
+      // the old printer instead of offering the chooser.
+      const { printing } = await load();
+      h.transport = makeTransport('Mystery-9000');
+      const p = printing.connectPrinter('ble');
+      await vi.advanceTimersByTimeAsync(60_000);
+      await p;
+      expect(h.calls).toContain('disconnect');
+      expect(h.connected).toBe(false);
+      expect(printing.isConnected()).toBe(false);
+    });
+
     it('an answered picker still connects, as before', async () => {
       const { printing, store } = await load();
       h.transport = makeTransport('Mystery-9000');

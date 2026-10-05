@@ -25,22 +25,35 @@ const QUERY_COMMANDS = {
 };
 
 // Singleton instance
+/** Devices that already carry our 'gattserverdisconnected' listener. Kept here, not on the device object. */
+const listening = new WeakSet<BluetoothDevice>();
+
 let sharedInstance: any = null;
 
+/**
+ * The longest string the printer may report for an identifier. A real serial or MAC is a handful
+ * of characters; anything longer is a malformed frame, and data2string would otherwise take every
+ * remaining byte of it.
+ */
+const MAX_STRING_FIELD = 64;
+
 export class BLETransport {
-  // Still `any`, and deliberately. @types/web-bluetooth is now installed and wired into tsconfig's
-  // `types` allowlist, so navigator.bluetooth and every requestDevice option ARE checked — that was
-  // the gap worth closing. These five handles are a different job: the transport stores null in them
-  // on disconnect, bolts its own _hasDisconnectHandler bookkeeping onto the device, and reads a
-  // DataView window the spec types but the runtime hands over loosely. Naming the spec types here
-  // turns ~20 honest `possibly null` and out-of-spec-property errors into non-null assertions, which
-  // would silence the compiler without making the code safer. Left as-is, and noted as the known
-  // remaining `any` rather than pretending otherwise.
-  device: any;
-  server: any;
-  service: any;
-  writeChar: any;
-  notifyChar: any;
+  // These were `any` for several releases, on the stated grounds that naming the spec types would
+  // only produce a wall of `possibly null` errors best silenced with non-null assertions. That was
+  // wrong, and the v1.0.18 review showed how: the errors fell into two kinds, and only one of them was
+  // the nullability. The "property does not exist" errors came from the transport stamping its own
+  // _hasDisconnectHandler flag onto the browser's BluetoothDevice — a real design wart, now a
+  // module-level WeakSet instead of a foreign property on someone else's object.
+  //
+  // With the wart gone, narrowing each handle into a local at the top of the method is enough, and
+  // it needs no assertions. It is also more honest than the code it replaces: send() now throws
+  // "Not connected" instead of a TypeError on undefined, and connectGATT() reports a device with no
+  // GATT server by name.
+  device: BluetoothDevice | null;
+  server: BluetoothRemoteGATTServer | null;
+  service: BluetoothRemoteGATTService | null;
+  writeChar: BluetoothRemoteGATTCharacteristic | null;
+  notifyChar: BluetoothRemoteGATTCharacteristic | null;
   connected: boolean;
   onDisconnect: (() => void) | null;
   onPrinterInfo: ((field: string, value: unknown, info: Record<string, unknown>) => void) | null;
@@ -239,8 +252,13 @@ export class BLETransport {
    * This helps with first-time pairing where the device isn't immediately usable
    */
   async waitForDeviceReady(timeout = 5000) {
+    const device = this.device;
+    if (!device) return;
+    // A hoisted `function finish()` below does not inherit the null check above, so hand it a
+    // const of the narrowed type.
+    const target: BluetoothDevice = device;
     // Check if watchAdvertisements is supported
-    if (!this.device.watchAdvertisements) {
+    if (!device.watchAdvertisements) {
       trace('watchAdvertisements not supported, using 3s delay for pairing to complete...');
       await this.delay(3000);
       return;
@@ -248,7 +266,6 @@ export class BLETransport {
 
     return new Promise((resolve: any) => {
       const abortController = new AbortController();
-      const device = this.device;
       let settled = false;
 
       // One finish path for all three exits. The listener is `{ once: true }`, so the
@@ -263,7 +280,7 @@ export class BLETransport {
         if (settled) return;
         settled = true;
         clearTimeout(timeoutId);
-        device.removeEventListener('advertisementreceived', onAdvertisement);
+        target.removeEventListener('advertisementreceived', onAdvertisement);
         try { abortController.abort(); } catch { /* already aborted */ }
         resolve();
       }
@@ -273,11 +290,11 @@ export class BLETransport {
         finish();
       }, timeout);
 
-      device.addEventListener('advertisementreceived', onAdvertisement, { once: true });
+      target.addEventListener('advertisementreceived', onAdvertisement, { once: true });
 
       // Start watching
       trace('Waiting for device to be ready...');
-      device.watchAdvertisements({ signal: abortController.signal })
+      target.watchAdvertisements({ signal: abortController.signal })
         .catch((e: any) => {
           // watchAdvertisements may fail or be aborted, that's okay
           if (!settled) trace('watchAdvertisements ended:', e.message);
@@ -290,6 +307,8 @@ export class BLETransport {
    * Connect to GATT server and get characteristics
    */
   async connectGATT() {
+    const device = this.device;
+    if (!device) throw new Error('No device selected');
     // Setup disconnect handler.
     //
     // The handler is tracked so it can be DETACHED, and stamped with a generation counter so a
@@ -299,8 +318,7 @@ export class BLETransport {
     // A and B, connect A, pick B, and every later flap of A fired this handler and nulled B's
     // writeChar while `this.device` was B. That made a working printer report "Not connected" until
     // the user reconnected, silently and repeatedly.
-    if (!this.device._hasDisconnectHandler) {
-      const device = this.device;
+    if (!listening.has(device)) {
       this._generation += 1;
       const gen = this._generation;
       const handler = () => {
@@ -325,13 +343,13 @@ export class BLETransport {
         if (device && this._deviceDisconnectHandler) {
           device.removeEventListener('gattserverdisconnected', this._deviceDisconnectHandler);
           this._deviceDisconnectHandler = null;
-          delete device._hasDisconnectHandler;
+          listening.delete(device);
         }
         if (this.onDisconnect) this.onDisconnect();
       };
       this._deviceDisconnectHandler = handler;
       device.addEventListener('gattserverdisconnected', handler);
-      device._hasDisconnectHandler = true;
+      listening.add(device);
     }
 
     // Reset state before attempting connection (important for retries)
@@ -342,7 +360,10 @@ export class BLETransport {
     this.notifyChar = null;
 
     trace('Connecting GATT...');
-    this.server = await this.device.gatt.connect();
+    const gatt = device.gatt;
+    if (!gatt) throw new Error('This device does not expose a GATT server');
+    const server = await gatt.connect();
+    this.server = server;
 
     // From here the radio link is UP, so every failure below must give it back. Previously a
     // missing service or an absent write characteristic threw with the GATT connection still
@@ -364,7 +385,7 @@ export class BLETransport {
       for (const serviceUuid of servicesToTry) {
         try {
           trace(`Trying service UUID: ${typeof serviceUuid === 'number' ? '0x' + serviceUuid.toString(16) : serviceUuid}`);
-          this.service = await this.server.getPrimaryService(serviceUuid);
+          this.service = await server.getPrimaryService(serviceUuid);
           trace('Service found!');
           break;
         } catch (e) {
@@ -429,7 +450,7 @@ export class BLETransport {
       const device = this.device;
       if (device && this._deviceDisconnectHandler) {
         device.removeEventListener('gattserverdisconnected', this._deviceDisconnectHandler);
-        delete device._hasDisconnectHandler;
+        listening.delete(device);
       }
       this._deviceDisconnectHandler = null;
       this._generation += 1;
@@ -468,7 +489,7 @@ export class BLETransport {
     // printer is connected NOW. Bumping the generation makes any already-queued handler a no-op.
     if (this.device && this._deviceDisconnectHandler) {
       this.device.removeEventListener('gattserverdisconnected', this._deviceDisconnectHandler);
-      delete this.device._hasDisconnectHandler;
+      listening.delete(this.device);
     }
     this._deviceDisconnectHandler = null;
     this._generation += 1;
@@ -517,14 +538,16 @@ export class BLETransport {
       throw new Error('send() expects an ArrayBuffer, a typed array, or an array of bytes');
     }
     if (view.length === 0) throw new Error('send() was given an empty buffer');
-    const buffer = view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
+    const writeChar = this.writeChar;
+    if (!writeChar) throw new Error('Not connected');
+    const buffer = new Uint8Array(view.buffer, view.byteOffset, view.byteLength).slice();
 
     // Use the appropriate write method based on characteristic properties
     if (this._useWriteWithResponse) {
-      await this.writeChar.writeValue(buffer);
+      await writeChar.writeValue(buffer);
     } else {
       try {
-        await this.writeChar.writeValueWithoutResponse(buffer);
+        await writeChar.writeValueWithoutResponse(buffer);
       } catch (e) {
         // Fallback to writeValue if writeValueWithoutResponse fails.
         //
@@ -537,7 +560,7 @@ export class BLETransport {
         if (name === 'NotSupportedError') {
           this._useWriteWithResponse = true;
         }
-        await this.writeChar.writeValue(buffer);
+        await writeChar.writeValue(buffer);
       }
     }
   }
@@ -679,6 +702,10 @@ export class BLETransport {
   /**
    * Handle notification data from printer
    * Response format: 0x1A, type, data...
+   *
+   * Everything here is display-only: no code path gates printing on a printer-reported value, and
+   * React escapes the text. So the guards below are about not showing the user something absurd
+   * (a 500-character serial, a 255% battery), not about defending an invariant.
    */
   handleNotification(event: any) {
     const v = event.target.value;
@@ -718,7 +745,11 @@ export class BLETransport {
         else if (data[2] === 0xA3) value = 3;
         else if (data[2] === 0xA2) value = 5;
         else if (data[2] === 0xA1) value = 10;
-        else value = data[2];
+        // D6: an unknown code was shown verbatim, so a frame of `1a 04 ff` put "255%" in the
+        // status bar. The printer is not the authority on what it is saying — it can be a different
+        // firmware — so the value is clamped to a real battery percentage and an out-of-range one
+        // is reported as unknown rather than displayed as a number no battery could have.
+        else value = data[2] <= 100 ? data[2] : null;
         field = 'battery';
         this.printerInfo.battery = value;
         break;
@@ -746,7 +777,9 @@ export class BLETransport {
         break;
 
       case 0x08: // Serial
-        value = this.data2string(data, 2);
+        // Capped like the MAC below: data2string takes every remaining byte, so a malformed or
+        // hostile frame could put an arbitrarily long string into the status area.
+        value = this.data2string(data, 2).slice(0, MAX_STRING_FIELD);
         field = 'serial';
         this.printerInfo.serial = value;
         break;
@@ -771,7 +804,7 @@ export class BLETransport {
         break;
 
       case 0x0D: // MAC
-        value = this.data2string(data, 2);
+        value = this.data2string(data, 2).slice(0, MAX_STRING_FIELD);
         field = 'mac';
         this.printerInfo.mac = value;
         break;

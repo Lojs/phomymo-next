@@ -14,6 +14,23 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BLETransport } from '../src/transport/ble';
 
+
+/**
+ * Typed stand-ins for the Web Bluetooth objects.
+ *
+ * BLETransport now names the real spec types (v1.0.19), so a partial literal like
+ * `{ gatt: { connected: true } }` no longer satisfies BluetoothDevice. These build the objects the
+ * tests actually exercise — a partial spec type is still a lie, but it is a lie in one named place
+ * instead of a cast at twenty call sites, and it fails to compile the moment the transport starts
+ * relying on a member the fake does not provide.
+ */
+const asDevice = (o: Partial<BluetoothDevice>): BluetoothDevice => o as BluetoothDevice;
+const asServer = (o: Partial<BluetoothRemoteGATTServer>): BluetoothRemoteGATTServer => o as BluetoothRemoteGATTServer;
+const asChar = (o: Partial<BluetoothRemoteGATTCharacteristic>): BluetoothRemoteGATTCharacteristic =>
+  o as BluetoothRemoteGATTCharacteristic;
+const asProps = (o: Partial<BluetoothCharacteristicProperties>): BluetoothCharacteristicProperties =>
+  o as BluetoothCharacteristicProperties;
+
 /** Build the event object Web Bluetooth hands to a characteristicvaluechanged listener. */
 function notify(...bytes: number[]) {
   const value = new DataView(Uint8Array.from(bytes).buffer);
@@ -137,12 +154,12 @@ describe('connection state', () => {
   it('isConnected() requires the device GATT link and a write characteristic', () => {
     const t = new BLETransport();
     t.connected = true;
-    t.writeChar = {};
+    t.writeChar = asChar({});
     // connected flag set but the device link is gone — must still report disconnected.
-    t.device = { gatt: { connected: false } };
+    t.device = asDevice({ gatt: asServer({ connected: false }) });
     expect(t.isConnected()).toBe(false);
 
-    t.device = { gatt: { connected: true } };
+    t.device = asDevice({ gatt: asServer({ connected: true }) });
     expect(t.isConnected()).toBe(true);
 
     t.writeChar = null;
@@ -152,7 +169,7 @@ describe('connection state', () => {
   it('getDeviceName() falls back to "Unknown" when the device has no name', () => {
     const t = new BLETransport();
     expect(t.getDeviceName()).toBe('Unknown');
-    t.device = { name: 'M221' };
+    t.device = asDevice({ name: 'M221' });
     expect(t.getDeviceName()).toBe('M221');
   });
 
@@ -167,12 +184,12 @@ describe('sending', () => {
     const writes: { method: string; bytes: number[] }[] = [];
     const t = new BLETransport();
     t.connected = true;
-    t.device = { gatt: { connected: true }, name: 'M221' };
-    t.writeChar = {
-      properties: { write: true, writeWithoutResponse: true },
+    t.device = asDevice({ gatt: asServer({ connected: true }), name: 'M221' });
+    t.writeChar = asChar({
+      properties: asProps({ write: true, writeWithoutResponse: true }),
       writeValueWithoutResponse: async (b: ArrayBuffer) => void writes.push({ method: 'withoutResponse', bytes: [...new Uint8Array(b)] }),
       writeValue: async (b: ArrayBuffer) => void writes.push({ method: 'withResponse', bytes: [...new Uint8Array(b)] }),
-    };
+    });
     return { t, writes };
   }
 
@@ -194,7 +211,8 @@ describe('sending', () => {
   it('falls back to writeValue when writeValueWithoutResponse rejects', async () => {
     const { t, writes } = connectedTransport();
     let calls = 0;
-    t.writeChar.writeValueWithoutResponse = async () => { calls++; throw new DOMException('not supported', 'NotSupportedError'); };
+    const char = t.writeChar!;   // connectedTransport() always sets it
+    char.writeValueWithoutResponse = async () => { calls++; throw new DOMException('not supported', 'NotSupportedError'); };
     await t.send(new Uint8Array([1]));
     expect(calls).toBe(1);
     expect(writes).toEqual([{ method: 'withResponse', bytes: [1] }]);
@@ -205,7 +223,8 @@ describe('sending', () => {
   it('does not flip to write-with-response for transient errors', async () => {
     const { t, writes } = connectedTransport();
     let calls = 0;
-    t.writeChar.writeValueWithoutResponse = async () => { calls++; throw new Error('transient network error'); };
+    const char = t.writeChar!;   // connectedTransport() always sets it
+    char.writeValueWithoutResponse = async () => { calls++; throw new Error('transient network error'); };
     await t.send(new Uint8Array([1]));
     expect(calls).toBe(1);
     expect(writes).toEqual([{ method: 'withResponse', bytes: [1] }]);
@@ -272,12 +291,12 @@ describe('query commands', () => {
     const sent: number[][] = [];
     const t = new BLETransport();
     t.connected = true;
-    t.device = { gatt: { connected: true }, name: 'M221' };
-    t.writeChar = {
-      properties: { write: true, writeWithoutResponse: true },
+    t.device = asDevice({ gatt: asServer({ connected: true }), name: 'M221' });
+    t.writeChar = asChar({
+      properties: asProps({ write: true, writeWithoutResponse: true }),
       writeValueWithoutResponse: async (b: ArrayBuffer) => void sent.push([...new Uint8Array(b)]),
       writeValue: async () => {},
-    };
+    });
     await t.query('battery');
     await t.query('paper');
     await t.query('cover');
@@ -294,12 +313,12 @@ describe('query commands', () => {
     const t = new BLETransport();
     const sent: number[][] = [];
     t.connected = true;
-    t.device = { gatt: { connected: true } };
-    t.writeChar = {
-      properties: { write: true, writeWithoutResponse: true },
+    t.device = asDevice({ gatt: asServer({ connected: true }) });
+    t.writeChar = asChar({
+      properties: asProps({ write: true, writeWithoutResponse: true }),
       writeValueWithoutResponse: async (b: ArrayBuffer) => void sent.push([...new Uint8Array(b)]),
       writeValue: async () => {},
-    };
+    });
     t.delay = async () => {}; // no need to wait 100ms per query
     await t.queryAll();
     expect(sent).toEqual([
@@ -317,7 +336,7 @@ describe('query commands', () => {
     const t = new BLETransport();
     const sent: number[][] = [];
     t.connected = true;
-    t.device = { gatt: { connected: true } };
+    t.device = asDevice({ gatt: asServer({ connected: true }) });
     // Fail only for the paper command, so the failure is about one field rather than a counter
     // that would keep failing for everything after it.
     const isPaper = (b: ArrayBuffer) => {
@@ -328,11 +347,11 @@ describe('query commands', () => {
       if (isPaper(b)) throw new Error('write failed');
       sent.push([...new Uint8Array(b)]);
     };
-    t.writeChar = {
-      properties: { write: true, writeWithoutResponse: true },
+    t.writeChar = asChar({
+      properties: asProps({ write: true, writeWithoutResponse: true }),
       writeValueWithoutResponse: async (b: ArrayBuffer) => record(b),
       writeValue: async (b: ArrayBuffer) => record(b),
-    };
+    });
     t.delay = async () => {};
     await expect(t.queryAll()).resolves.toBeUndefined();
     // Battery, cover, firmware and serial still went out; only paper was lost.
@@ -347,14 +366,14 @@ describe('query commands', () => {
     // transport remembers the choice rather than retrying the failing method each time.
     const t = new BLETransport();
     t.connected = true;
-    t.device = { gatt: { connected: true } };
+    t.device = asDevice({ gatt: asServer({ connected: true }) });
     let withoutResponse = 0;
     let withResponse = 0;
-    t.writeChar = {
-      properties: { write: true, writeWithoutResponse: true },
+    t.writeChar = asChar({
+      properties: asProps({ write: true, writeWithoutResponse: true }),
       writeValueWithoutResponse: async () => { withoutResponse += 1; throw new DOMException('nope', 'NotSupportedError'); },
       writeValue: async () => { withResponse += 1; },
-    };
+    });
     await t.send(new Uint8Array([1]));
     expect(withoutResponse).toBe(1);
     expect(withResponse).toBe(1);
@@ -368,8 +387,8 @@ describe('query commands', () => {
   it('rejects an unknown query type', async () => {
     const t = new BLETransport();
     t.connected = true;
-    t.device = { gatt: { connected: true } };
-    t.writeChar = {};
+    t.device = asDevice({ gatt: asServer({ connected: true }) });
+    t.writeChar = asChar({});
     await expect(t.query('nonsense')).rejects.toThrow(/unknown query/i);
   });
 });

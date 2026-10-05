@@ -93,6 +93,15 @@ published); the browser is what decides whether printing is possible.
 Printing works from Chrome or Edge on Windows, Linux and Android. It does not work
 from Safari on macOS, iOS or iPadOS, which ship no Web Bluetooth implementation.
 
+**On Windows, use Bluetooth.** USB printing there usually fails with "Permission
+denied" even though the browser and the site are both fine. Windows binds the
+printer to its own kernel-mode print driver — Device Manager shows it as *USB
+Printing Support* — and once Windows holds the interface, no browser can claim it.
+WebUSB needs the device free of that binding, which takes a manual WinUSB driver
+override; the certificate warning you already click through is a much smaller
+step than that. On Linux and the Raspberry Pi there is no such driver, so USB
+works normally. This is a Windows behaviour, not a limit of this app.
+
 > **A self-signed certificate is enough to print, but not to install.**
 > The browser will warn once; click through it and the origin counts as secure, so
 > Bluetooth and USB work. Installing as a PWA (Chrome refuses a service worker on an
@@ -209,7 +218,7 @@ npm run typecheck
 
 ### Tests
 
-**1275 tests** across 55 files — 1257 run here, and 18 more are the nginx
+**1300 tests** across 57 files — 1282 run here, and 18 more are the nginx
 routing tests, which skip themselves when nginx is not installed and run on CI.
 Many are **golden tests**: they compare this rewrite's output byte-for-byte
 against a frozen copy of the original implementation in `tests/legacy/`, so a
@@ -217,7 +226,7 @@ refactor cannot quietly change what reaches the paper.
 
 The count moves as the suite grows, and `npx vitest list` under-reports it (it
 skips the jsdom project). Read it off the last line of `npm test` instead:
-`Tests  1257 passed | 18 skipped (1275)`.
+`Tests  1282 passed | 18 skipped (1300)`.
 
 `npm run typecheck` and `npm run build` are separate; CI runs all three before
 anything is published. Note that `npm test` alone does **not** compute coverage —

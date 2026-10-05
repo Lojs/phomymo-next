@@ -39,6 +39,13 @@ describe('every single-byte protocol field is bounded', () => {
     expect(density).toBeGreaterThan(0);
   });
 
+  it('a NaN density falls back to the default level, not to a mid-byte value', () => {
+    // D7: clampByte's generic fallback is 128, the middle of 0-255, but the density domain is the
+    // 1-8 the UI offers. 128 is not the middle of that range — it is a large out-of-range command.
+    const density = lastByteOf(encode('M221', NaN), [0x1d, 0x7c]);
+    expect(density).toBeLessThanOrEqual(8);
+  });
+
   it('a density past 255 does not wrap round to a low value', () => {
     const density = lastByteOf(encode('M221', 9999), [0x1d, 0x7c]);
     expect(density).toBeLessThanOrEqual(255);

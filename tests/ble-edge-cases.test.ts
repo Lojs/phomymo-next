@@ -16,6 +16,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BLETransport } from '../src/transport/ble';
 import { runOps } from '../src/core/protocols/ops';
 
+/**
+ * Typed stand-ins for the Web Bluetooth objects, now that BLETransport names the real spec types.
+ * A partial literal is still a lie; keeping it in one named place means it fails to compile the
+ * moment the transport relies on a member the fake does not provide.
+ */
+const asDevice = (o: Partial<BluetoothDevice>): BluetoothDevice => o as BluetoothDevice;
+const asServer = (o: Partial<BluetoothRemoteGATTServer>): BluetoothRemoteGATTServer => o as BluetoothRemoteGATTServer;
+const asChar = (o: Partial<BluetoothRemoteGATTCharacteristic>): BluetoothRemoteGATTCharacteristic =>
+  o as BluetoothRemoteGATTCharacteristic;
+const asProps = (o: Partial<BluetoothCharacteristicProperties>): BluetoothCharacteristicProperties =>
+  o as BluetoothCharacteristicProperties;
+
+
 beforeEach(() => vi.spyOn(console, 'log').mockImplementation(() => {}));
 
 /** A transport wired up so send()/waitForResponse() can be exercised directly. */
@@ -23,12 +36,12 @@ function connected() {
   const writes: { method: string; bytes: number[] }[] = [];
   const t = new BLETransport();
   t.connected = true;
-  t.device = { gatt: { connected: true }, name: 'M221' };
-  t.writeChar = {
-    properties: { write: true, writeWithoutResponse: true },
+  t.device = asDevice({ gatt: asServer({ connected: true }), name: 'M221' });
+  t.writeChar = asChar({
+    properties: asProps({ write: true, writeWithoutResponse: true }),
     writeValueWithoutResponse: async (b: ArrayBuffer) => void writes.push({ method: 'withoutResponse', bytes: [...new Uint8Array(b)] }),
     writeValue: async (b: ArrayBuffer) => void writes.push({ method: 'withResponse', bytes: [...new Uint8Array(b)] }),
-  };
+  });
   return { t, writes };
 }
 
@@ -57,7 +70,8 @@ function fakeNotifyChar() {
 describe('F-12: a transient link error does not change the write mode', () => {
   it('InvalidStateError does not flip to write-with-response', async () => {
     const { t } = connected();
-    t.writeChar.writeValueWithoutResponse = async () => {
+    const char = t.writeChar!;   // connected() always sets it
+    char.writeValueWithoutResponse = async () => {
       throw new DOMException('gatt gone', 'InvalidStateError');
     };
     await t.send(new Uint8Array([1]));
@@ -66,7 +80,8 @@ describe('F-12: a transient link error does not change the write mode', () => {
 
   it('NotSupportedError does flip, and is remembered', async () => {
     const { t } = connected();
-    t.writeChar.writeValueWithoutResponse = async () => {
+    const char = t.writeChar!;   // connected() always sets it
+    char.writeValueWithoutResponse = async () => {
       throw new DOMException('nope', 'NotSupportedError');
     };
     await t.send(new Uint8Array([1]));

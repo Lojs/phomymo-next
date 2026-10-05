@@ -60,7 +60,12 @@ const CMD = {
   FEED: (dots: number) => u8(0x1b, 0x4a, Math.max(0, Math.min(255, Math.round(dots)))),
   // Density is one byte too. A NaN here became 0 in the Uint8Array and a value past 255 wrapped
   // round, so a level that bypassed storage clamping (a test, a future path) printed silently wrong.
-  DENSITY: (level: number) => u8(0x1d, 0x7c, clampByte(level)),
+  //
+  // A non-finite level falls back to DEFAULT_DENSITY, not to clampByte's mid-byte 128: the valid
+  // domain here is the small 1-8 the UI offers, so 128 is not the middle of anything — it is just a
+  // large out-of-range command. That also makes the fallback agree with densityToHeatTime(), which
+  // already resolves a bad density to the middle of its own range.
+  DENSITY: (level: number) => u8(0x1d, 0x7c, clampByte(level, DEFAULT_DENSITY)),
   HEAT_SETTINGS: (maxDots: number, heatTime: number, heatInterval: number) =>
     u8(0x1b, 0x37, clampByte(maxDots), clampByte(heatTime), clampByte(heatInterval)),
   LINE_SPACING: (dots: number) => u8(0x1b, 0x33, clampByte(dots)),
@@ -68,11 +73,21 @@ const CMD = {
     u8(0x1d, 0x76, 0x30, 0x00, ...dims16(widthBytes, heightLines)),
 };
 
-/** One unsigned byte, rounded and bounded. A non-finite input lands mid-range rather than at 0. */
-function clampByte(v: number): number {
-  if (!Number.isFinite(v)) return 128;
+/**
+ * One unsigned byte, rounded and bounded.
+ *
+ * `fallback` is what a non-finite input becomes. It defaults to 128, the middle of the byte domain,
+ * which is right for a field whose whole range is 0-255 but wrong for one whose range is 1-8 —
+ * hence DENSITY passing DEFAULT_DENSITY. Never returns 0: a NaN that lands at 0 is a silent "off"
+ * command where the caller meant "unknown".
+ */
+function clampByte(v: number, fallback = 128): number {
+  if (!Number.isFinite(v)) return fallback;
   return Math.max(0, Math.min(255, Math.round(v)));
 }
+
+/** The density the UI opens with, and the fallback for a value that is not a number. */
+const DEFAULT_DENSITY = 5;
 
 const M02_PREFIX = u8(0x10, 0xff, 0xfe, 0x01);
 

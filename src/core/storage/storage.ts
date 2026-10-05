@@ -154,7 +154,19 @@ const isElement = (v: unknown): boolean => {
   const e = v as Record<string, unknown>;
   const t = e.type;
   if (t !== 'text' && t !== 'image' && t !== 'barcode' && t !== 'qr' && t !== 'shape') return false;
-  return num(e.x) && num(e.y) && num(e.width) && num(e.height) && num(e.rotation) && typeof e.id === 'string';
+  if (!num(e.x) || !num(e.y) || !num(e.width) || !num(e.height) || !num(e.rotation) || typeof e.id !== 'string') return false;
+  // An image element carries its pixels in `imageData`, and the only form this app ever writes is
+  // a data: URL — imported files are read with readAsDataURL, and shrinkImage returns one. Accepting
+  // any string here let a hostile design file set imageData to 'https://attacker/pixel.png?id=victim',
+  // which the canvas then loads. The shipped container's CSP (img-src 'self' data: blob:) stops the
+  // request, but `npm run dev`, `npm run preview` and any other host serving the built files have no
+  // such policy, and merely opening the design would contact the attacker's server with the victim's
+  // IP and a query string of their choosing. Require the data: form so the pixels are always inline.
+  if (t === 'image') {
+    const src = e.imageData;
+    if (typeof src !== 'string' || !src.startsWith('data:image/')) return false;
+  }
+  return true;
 };
 
 const isLabelSize = (v: unknown): boolean => {

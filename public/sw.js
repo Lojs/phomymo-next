@@ -11,11 +11,11 @@
  * as the device is online and only falls back to the cached shell when it is not.
  */
 
-const VERSION = 'phomymo-v2';
+const VERSION = 'phomymo-v3';
 const SHELL = `${VERSION}-shell`;
 const ASSETS = `${VERSION}-assets`;
 
-const SHELL_URLS = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
+const SHELL_URLS = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg', '/asset-manifest.json'];
 
 /**
  * Hashed by Vite, so a given name always means the same bytes.
@@ -31,25 +31,39 @@ const isIcon = (url) =>
   url.pathname.startsWith('/icons/');
 
 /**
- * Drop cache entries no longer referenced by the shell.
+ * Drop cache entries this build does not reference.
  *
  * Hashed filenames change every release, so the ASSETS cache accumulated one dead entry per built
- * chunk per deploy and nothing ever removed them: a year of updates leaves a browser holding
- * megabytes of orphaned JavaScript. The cache names are versioned, so `activate` already discards
- * the previous *release's* caches wholesale — but every orphaned entry inside the *current* release's
- * cache survives, because the version never changes within a release. Trimming the ASSETS cache to
- * its own keys on activate costs one list() and keeps the cache exactly as large as the build.
+ * chunk per deploy and nothing ever removed them: the pdf.js worker alone is ~1.2 MB, so a year of
+ * updates leaves a browser holding megabytes of orphaned JavaScript. Cache NAMES are versioned, so
+ * `activate` already discards the previous *release's* caches wholesale.
+ *
+ * An earlier version of this tried to trim by keeping "whatever is under /assets/" — which is a
+ * tautology: every entry under /assets/ is kept precisely because it is under /assets/, so the
+ * only things it could ever delete were the icons. The dead hashed chunks survived, which is the
+ * exact problem it claimed to solve.
+ *
+ * The list of filenames THIS build ships comes from the build itself: a small Vite plugin writes
+ * dist/asset-manifest.json listing every emitted file, and the worker fetches it here. A file the
+ * build no longer produces is therefore not in the list and does get deleted.
+ *
+ * If the manifest cannot be read, everything is kept. An over-large cache is a minor cost;
+ * deleting a file the running app still needs is a broken app, so the failure mode is chosen.
  */
 const trimAssets = async () => {
   const cache = await caches.open(ASSETS);
-  const keys = await cache.keys();
-  const keep = new Set(SHELL_URLS);
-  // Anything still cached under /assets/ may be in use by this very release; entries anywhere else
-  // were written by the icon path (which shares the cache) and are re-fetchable on demand.
-  for (const req of keys) {
-    const url = new URL(req.url);
-    if (isImmutableAsset(url)) keep.add(url.pathname);
+  let names;
+  try {
+    const res = await fetch('/asset-manifest.json', { cache: 'no-store' });
+    if (!res.ok) return;
+    const parsed = await res.json();
+    if (!Array.isArray(parsed) || !parsed.length) return;
+    names = parsed;
+  } catch {
+    return;   // no manifest, offline, or malformed: keep everything
   }
+  const keep = new Set([...SHELL_URLS, ...names.map((n) => new URL(n, self.location.origin).pathname)]);
+  const keys = await cache.keys();
   const stale = keys.filter((req) => !keep.has(new URL(req.url).pathname));
   await Promise.all(stale.map((req) => cache.delete(req)));
 };

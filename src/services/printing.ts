@@ -257,9 +257,9 @@ async function afterConnect(type: 'ble' | 'usb', deviceName: string): Promise<bo
     // and the print goes out on 'auto' — a guess — so the connect is abandoned instead and the
     // caller reports failure. The user reopens the picker explicitly.
     if (!(await waitForDialogToClose('model'))) {
-      st().setConn({ connected: false, type: null, busy: false, status: 'disconnected', error: null });
-      transport = null;
-      kind = null;
+      // Close the link, not just the state: nulling the handles alone left the GATT connection up
+      // while the UI reported "disconnected" (see teardown()).
+      await teardown();
       st().toast(tr('modelUnanswered'), 'error');
       return false;
     }
@@ -283,9 +283,23 @@ async function afterConnect(type: 'ble' | 'usb', deviceName: string): Promise<bo
   return true;
 }
 
-export async function disconnectPrinter(): Promise<void> {
+/**
+ * Close the link and forget everything about it, in one place.
+ *
+ * Three paths used to do this by hand — the transport's own onDisconnect, disconnectPrinter(), and
+ * the abandon path when the model dialog is never answered — and they did not do the same things.
+ * The abandon path, added in v1.0.17, nulled the handles without ever calling disconnect(), so the
+ * radio link stayed up while the UI said "disconnected": the printer remained occupied so no other
+ * device could take it, and the next Connect hit `if (this.isConnected()) return true` inside
+ * _connect() and silently reused the old printer instead of offering the chooser. One function,
+ * used by all three, removes the whole class of bug.
+ *
+ * Every caller here is deliberate — the user pressed Disconnect, or the connect is being abandoned —
+ * so the link is never remembered as restorable. A spontaneous drop is handled by the transport's
+ * own onDisconnect instead, which is the one path that does set droppedByItself.
+ */
+async function teardown(): Promise<void> {
   stopBatteryRefresh();
-  // The user asked for this, so returning to the tab must not undo it.
   droppedByItself = false;
   try {
     await transport?.disconnect?.();
@@ -303,6 +317,10 @@ export async function disconnectPrinter(): Promise<void> {
     // misinterpreted as a spontaneous drop.
     droppedByItself = false;
   }
+}
+
+export async function disconnectPrinter(): Promise<void> {
+  await teardown();
 }
 
 export function rememberModel(deviceName: string, model: string): void {
