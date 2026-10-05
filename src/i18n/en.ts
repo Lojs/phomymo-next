@@ -79,6 +79,7 @@ export const en = {
   deviceUnavailable: 'The device is busy or out of range. Turn it on, move closer, and try again.',
   printFailed: 'Print failed', printComplete: 'Print complete', printedCopies: 'Printed {n} copies', sending: 'Sending {pct}%',
   connectFirst: 'Connect to a printer first',
+  modelUnanswered: 'No printer model was chosen, so the print was cancelled. Open the printer list and pick your model.',
   // printers manager
   printersTitle: 'Printer definitions', builtin: 'Built-in', customPrinter: 'Custom', addPrinter: 'Add printer', editPrinter: 'Edit printer',
   printerId: 'ID', printerName: 'Name', protocol: 'Protocol', widthBytes: 'Width (bytes)', dpi: 'DPI', alignment: 'Alignment',

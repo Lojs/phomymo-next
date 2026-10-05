@@ -74,42 +74,37 @@ describe('F-12: a transient link error does not change the write mode', () => {
   });
 });
 
-describe('F-13: a wait can require a specific frame', () => {
-  it('an unsolicited frame does not satisfy a filtered wait', async () => {
+describe('F-13: a wait resolves on the first frame the printer sends', () => {
+  it('returns the frame it resolved on, window intact', async () => {
     const { t } = connected();
     const ch = fakeNotifyChar();
     t.notifyChar = ch;
 
-    const isAck = (d: Uint8Array) => d[0] === 0x1a && d[1] === 0x07;   // firmware
-    const waiting = t.waitForResponse(1000, isAck);
-
-    // The printer pushes a cover event first — it must NOT resolve the wait.
-    ch.fire([0x1a, 0x05, 0x99]);
-    // Then the frame we actually asked for.
-    ch.fire([0x1a, 0x07, 0x01]);
+    const waiting = t.waitForResponse(1000);
+    ch.fire([0x1a, 0x05, 0x99]);   // a cover event — unsolicited, but a notification
 
     const got = (await waiting) as DataView;
     expect(got).not.toBeNull();
-    expect(new Uint8Array(got.buffer, got.byteOffset, got.byteLength)).toEqual(new Uint8Array([0x1a, 0x07, 0x01]));
+    expect(new Uint8Array(got.buffer, got.byteOffset, got.byteLength)).toEqual(new Uint8Array([0x1a, 0x05, 0x99]));
   });
 
-  it('without a predicate, the first frame of any kind resolves it', async () => {
+  it('a wait that is never sent anything times out to null and removes its listener', async () => {
     const { t } = connected();
     const ch = fakeNotifyChar();
     t.notifyChar = ch;
-    const waiting = t.waitForResponse(1000);
-    ch.fire([0x1a, 0x05, 0x99]);
-    expect(await waiting).not.toBeNull();
-  });
-
-  it('a filtered wait that never matches times out to null', async () => {
-    const { t } = connected();
-    const ch = fakeNotifyChar();
-    t.notifyChar = ch;
-    const waiting = t.waitForResponse(20, (d) => d[0] === 0xff);
-    ch.fire([0x1a, 0x05, 0x99]);
+    const waiting = t.waitForResponse(20);
     expect(await waiting).toBeNull();
-    expect(ch.live()).toBe(0);   // listener removed on timeout
+    expect(ch.live()).toBe(0);
+  });
+
+  // F-13/F-7 follow-up: the `expect` filter this file originally pinned was removed. It was never
+  // passed by any caller, so the P12 handshake concern it documented was real and unaddressed —
+  // carrying a dead filter into a waiter was worse than admitting the wait is unfiltered. This
+  // test exists so that if a filter ever comes back, it comes back with a caller and a reason.
+  it('no filter argument remains on waitForResponse', () => {
+    // `length` counts parameters before the first default, so this is 0 (timeout is defaulted,
+    // signal is not) and would be 1 if the removed `expect` predicate were still in the signature.
+    expect(BLETransport.prototype.waitForResponse.length).toBe(0);
   });
 });
 
@@ -118,15 +113,18 @@ describe('F-14: the response trace honours the DataView window', () => {
     const { t } = connected();
     const ch = fakeNotifyChar();
     t.notifyChar = ch;
-    const seen: number[][] = [];
+    const seen: string[] = [];
     t.onPrinterInfo = () => {};
+    const spy = vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { seen.push(a.join(' ')); });
 
-    const waiting = t.waitForResponse(50, (d) => { seen.push([...d]); return true; });
+    const waiting = t.waitForResponse(50);
+    // A DataView whose window is 3 bytes inside a 16-byte buffer.
     ch.fire([0x1a, 0x07, 0x02]);
     await waiting;
+    spy.mockRestore();
 
-    // Exactly three bytes, not the 16-byte backing buffer.
-    expect(seen[0]).toEqual([0x1a, 0x07, 0x02]);
+    // The trace must show exactly three bytes, not the whole backing buffer.
+    expect(seen.join('\n')).toContain('1a 07 02');
   });
 });
 

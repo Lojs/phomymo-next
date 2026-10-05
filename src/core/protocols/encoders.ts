@@ -58,13 +58,21 @@ const CMD = {
   INIT: u8(0x1b, 0x40),
   // Feed is a single byte on the wire: clamp instead of letting Uint8Array wrap (feed > 255).
   FEED: (dots: number) => u8(0x1b, 0x4a, Math.max(0, Math.min(255, Math.round(dots)))),
-  DENSITY: (level: number) => u8(0x1d, 0x7c, level),
+  // Density is one byte too. A NaN here became 0 in the Uint8Array and a value past 255 wrapped
+  // round, so a level that bypassed storage clamping (a test, a future path) printed silently wrong.
+  DENSITY: (level: number) => u8(0x1d, 0x7c, clampByte(level)),
   HEAT_SETTINGS: (maxDots: number, heatTime: number, heatInterval: number) =>
-    u8(0x1b, 0x37, maxDots, heatTime, heatInterval),
-  LINE_SPACING: (dots: number) => u8(0x1b, 0x33, dots),
+    u8(0x1b, 0x37, clampByte(maxDots), clampByte(heatTime), clampByte(heatInterval)),
+  LINE_SPACING: (dots: number) => u8(0x1b, 0x33, clampByte(dots)),
   RASTER_HEADER: (widthBytes: number, heightLines: number) =>
     u8(0x1d, 0x76, 0x30, 0x00, ...dims16(widthBytes, heightLines)),
 };
+
+/** One unsigned byte, rounded and bounded. A non-finite input lands mid-range rather than at 0. */
+function clampByte(v: number): number {
+  if (!Number.isFinite(v)) return 128;
+  return Math.max(0, Math.min(255, Math.round(v)));
+}
 
 const M02_PREFIX = u8(0x10, 0xff, 0xfe, 0x01);
 
@@ -221,7 +229,7 @@ function tsplPrint(r: Raster, density: number): Op[] {
   const ops: Op[] = [];
   const labelWidthMm = Math.round((r.widthBytes * 8) / 8); // 8 dots/mm at 203 DPI
   const labelHeightMm = Math.round(r.heightLines / 8);
-  const tsplDensity = Math.round((density / 8) * 15);
+  const tsplDensity = Math.max(0, Math.min(15, Math.round((density / 8) * 15)));
 
   ops.push(send(tspl(`SIZE ${labelWidthMm} mm, ${labelHeightMm} mm`)), delay(50));
   ops.push(send(tspl('GAP 3 mm, 0 mm')), delay(50));

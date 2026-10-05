@@ -540,17 +540,16 @@ export class BLETransport {
   /**
    * Wait for a response from the printer (BLE notification)
    *
-   * `expect` optionally filters which frames satisfy the wait. Without it this resolves on the
-   * FIRST notification of any kind — including the unsolicited frames the printer pushes on its
-   * own (cover 1a 05 99, paper-out 1a 06 88, print-status 1a 0b ..). In the P12 handshake
-   * (six INIT_SEQUENCE commands, each followed by a `wait`) that let the next command go out
-   * before the printer had acked the previous one. Pass a predicate to wait for a specific frame.
+   * Resolves on the FIRST notification of any kind, including the unsolicited frames the printer
+   * pushes on its own (cover 1a 05 99, paper-out 1a 06 88, print-status 1a 0b ..). A filter to wait
+   * for one specific frame existed as an `expect` argument, but no caller ever passed one, so the
+   * P12 handshake concern it was written for was never addressed; it has been removed rather than
+   * left as an unused path into a waiter.
    *
    * @param {number} timeout - Maximum time to wait in ms (default 500)
-   * @param {(data: Uint8Array) => boolean} expect - Only a frame passing this resolves the wait
-   * @returns {Promise<DataView|null>} Response data, or null on timeout/disconnect/no match
+   * @returns {Promise<DataView|null>} Response data, or null on timeout/disconnect
    */
-  async waitForResponse(timeout = 500, expect?: (data: Uint8Array) => boolean, signal?: AbortSignal) {
+  async waitForResponse(timeout = 500, signal?: AbortSignal) {
     if (!this.notifyChar) {
       // No notification characteristic, use delay fallback
       await this.delay(timeout, signal);
@@ -588,11 +587,6 @@ export class BLETransport {
         // and printed the whole backing buffer, so the [BLE Response] trace showed bytes the
         // printer never sent. handleNotification reads it correctly; this was the odd one out.
         const data = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
-        // A frame that does not match is not our answer — keep waiting rather than resolving.
-        if (expect && !expect(data)) {
-          trace('[BLE Response] (ignored)', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
-          return;
-        }
         cleanup();
         trace('[BLE Response]', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
         resolve(v);

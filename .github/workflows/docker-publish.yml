@@ -46,9 +46,13 @@ jobs:
       # is a manual step, which is exactly why it needs a gate.
       - name: الوسم يطابق إصدار package.json
         if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          # عبر env، لا عبر ${{ }} داخل run: — اسم الوسم نص يختاره من يملك حق الدفع،
+          # وتوسيع قيم السياق داخل السكربت هو ما توصي به GitHub نفسه.
+          REF_NAME: ${{ github.ref_name }}
         run: |
           want="v$(node -p "require('./package.json').version")"
-          got="${{ github.ref_name }}"
+          got="$REF_NAME"
           if [ "$want" != "$got" ]; then
             echo "::error::Tag $got does not match package.json version ($want)"
             exit 1

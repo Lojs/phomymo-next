@@ -65,32 +65,35 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Resolve once the given dialog is no longer the open one — i.e. the user answered it (or
- * dismissed it). Resolves immediately if it is not open. Used to hold a print until the model
- * picker has been answered, so the raster is not built with a stale `printerModel`.
+ * dismissed it). Resolves `true` when the user answered, `false` when the wait ran out.
+ *
+ * The false is the point. The bounded timeout exists so the print slot can never be held forever:
+ * the subscription alone resolved only on a store transition away from `name`, and if the dialog
+ * were torn down without one — a component unmount, a test harness reset — the promise never
+ * settled, printCurrent's `finally` never ran, `printing` stayed true and isPrinting() returned
+ * true for the rest of the session. But when the user simply walks away from the model picker, the
+ * old code resumed the connection and printed on a stale `printerModel`, which is the wrong dpi
+ * and the wrong encoding for a machine nobody identified. A timeout now means "not configured",
+ * and the caller refuses to print.
  */
-function waitForDialogToClose(name: NonNullable<ReturnType<typeof st>['dialog']>): Promise<void> {
-  if (st().dialog !== name) return Promise.resolve();
+function waitForDialogToClose(name: NonNullable<ReturnType<typeof st>['dialog']>): Promise<boolean> {
+  if (st().dialog !== name) return Promise.resolve(true);
   return new Promise((resolve) => {
-    // Bounded, so the print slot can never be held forever. The subscription alone resolved only
-    // on a store transition away from `name`; if the dialog were torn down without one — a
-    // component unmount, a test harness reset — the promise never settled, printCurrent's `finally`
-    // never ran, `printing` stayed true and isPrinting() returned true for the rest of the session.
-    // The user saw a Print button that did nothing until they reloaded.
-    const timer = setTimeout(finish, DIALOG_WAIT_TIMEOUT_MS);
+    const timer = setTimeout(() => finish(false), DIALOG_WAIT_TIMEOUT_MS);
     let unsub: (() => void) | null = null;
-    function finish() {
+    function finish(answered: boolean) {
       clearTimeout(timer);
       unsub?.();
       unsub = null;
-      resolve();
+      resolve(answered);
     }
     unsub = useStore.subscribe((s: { dialog: string | null }) => {
-      if (s.dialog !== name) finish();
+      if (s.dialog !== name) finish(true);
     });
   });
 }
 
-/** How long the model picker may stay open before the print proceeds with what is configured. */
+/** How long the model picker may stay open before the connect is abandoned rather than guessed. */
 const DIALOG_WAIT_TIMEOUT_MS = 60_000;
 
 export const secureContextOk = () => window.isSecureContext;
@@ -213,7 +216,10 @@ export async function connectPrinter(type: 'ble' | 'usb', showAllDevices = false
 
     const deviceName: string = transport.getDeviceName?.() || '';
     st().setConn({ type, connected: true, deviceName, busy: false, status: 'connected', error: null });
-    await afterConnect(type, deviceName);
+    if (!(await afterConnect(type, deviceName))) {
+      // afterConnect has already cleared the connection state and torn the transport down.
+      return false;
+    }
     return true;
   } catch (e) {
     const err = e as Error;
@@ -229,7 +235,8 @@ export async function connectPrinter(type: 'ble' | 'usb', showAllDevices = false
   }
 }
 
-async function afterConnect(type: 'ble' | 'usb', deviceName: string): Promise<void> {
+/** Resolve the printer's profile after connecting. False when the user never picked a model. */
+async function afterConnect(type: 'ble' | 'usb', deviceName: string): Promise<boolean> {
   const { registry, settings, updateSettings } = st();
   const recognized = registry.detect(deviceName).recognized;
   const saved = getDeviceModel(deviceName);
@@ -245,7 +252,17 @@ async function afterConnect(type: 'ble' | 'usb', deviceName: string): Promise<vo
     // so a print started right after connecting built its raster while printerModel was still
     // 'auto' and silently used the wrong profile (dpi/encoding). Wait for the dialog to close,
     // then re-read settings, so the model the user chose is the one that prints.
-    await waitForDialogToClose('model');
+    //
+    // `false` means the picker was still open after the timeout: nobody chose a model. Carry on
+    // and the print goes out on 'auto' — a guess — so the connect is abandoned instead and the
+    // caller reports failure. The user reopens the picker explicitly.
+    if (!(await waitForDialogToClose('model'))) {
+      st().setConn({ connected: false, type: null, busy: false, status: 'disconnected', error: null });
+      transport = null;
+      kind = null;
+      st().toast(tr('modelUnanswered'), 'error');
+      return false;
+    }
   }
 
   const cfg = currentConfig();
@@ -263,6 +280,7 @@ async function afterConnect(type: 'ble' | 'usb', deviceName: string): Promise<vo
     // arrive as events when they do.
     startBatteryRefresh();
   }
+  return true;
 }
 
 export async function disconnectPrinter(): Promise<void> {

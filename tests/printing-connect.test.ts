@@ -287,6 +287,46 @@ describe('choosing a printer profile after connecting', () => {
     await printing.connectPrinter('ble');
     expect(store.getState().settings.tapeWidth).toBe(12);
   });
+
+  // F8: the picker used to resolve on the 60s timeout as if the user had answered it, and the
+  // connect carried on — printing on 'auto', i.e. a guessed dpi and encoding for a machine nobody
+  // identified. The timeout now means "not configured": the connect is abandoned and reported.
+  describe('a model picker nobody answers', () => {
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('does not connect, and says why', async () => {
+      const { printing, store } = await load();
+      h.transport = makeTransport('Mystery-9000');
+      const p = printing.connectPrinter('ble');
+      await vi.advanceTimersByTimeAsync(60_000);   // the dialog is still open
+      expect(await p).toBe(false);
+      expect(store.getState().conn.connected).toBe(false);
+      expect(store.getState().toasts.at(-1)).toMatchObject({ kind: 'error' });
+      expect(store.getState().toasts.at(-1)!.text).toMatch(/model/i);
+    });
+
+    it('leaves no transport behind, so the next connect is a clean one', async () => {
+      const { printing } = await load();
+      h.transport = makeTransport('Mystery-9000');
+      const p = printing.connectPrinter('ble');
+      await vi.advanceTimersByTimeAsync(60_000);
+      await p;
+      expect(printing.isConnected()).toBe(false);
+    });
+
+    it('an answered picker still connects, as before', async () => {
+      const { printing, store } = await load();
+      h.transport = makeTransport('Mystery-9000');
+      const p = printing.connectPrinter('ble');
+      await vi.advanceTimersByTimeAsync(0);
+      store.getState().updateSettings({ printerModel: 'm221' });
+      store.getState().openDialog(null);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await p).toBe(true);
+      expect(store.getState().conn.connected).toBe(true);
+    });
+  });
 });
 
 describe('currentTarget', () => {

@@ -9,19 +9,21 @@ export type Op =
   /**
    * Wait for a printer notification; transports without notifications fall back to a 100 ms delay.
    *
-   * `expect` says which frame actually satisfies the wait. Without it a `wait` means "any
-   * notification at all", so an unsolicited frame — the printer pushes cover / paper / print-status
-   * events on its own — could satisfy a handshake barrier before the printer had acked the command
-   * it was sent after.
+   * This resolves on the FIRST notification of any kind, including the frames the printer pushes
+   * unprompted (cover 1a 05 99, paper-out 1a 06 88, print-status 1a 0b ..). A `wait` used to accept
+   * an `expect` predicate so a caller could wait for one specific frame instead; no caller ever
+   * passed one, so the P12 handshake concern it was written for is unchanged either way, and the
+   * unused plumbing was dead weight on a security-relevant path (an unfiltered waiter also resolves
+   * on anything the printer volunteers). Kept as a plain timeout until a caller has a frame to wait for.
    */
-  | { t: 'wait'; ms: number; expect?: (data: Uint8Array) => boolean }
+  | { t: 'wait'; ms: number }
   | { t: 'progress'; pct: number };
 
 export interface Transport {
   send(data: Uint8Array): Promise<void>;
   /** An optional signal lets an implementation abandon the wait early instead of running it out. */
   delay(ms: number, signal?: AbortSignal): Promise<void>;
-  waitForResponse?(timeoutMs: number, expect?: (data: Uint8Array) => boolean, signal?: AbortSignal): Promise<unknown>;
+  waitForResponse?(timeoutMs: number, signal?: AbortSignal): Promise<unknown>;
 }
 
 /**
@@ -72,7 +74,7 @@ export async function runOps(
         break;
       case 'wait':
         if (transport.waitForResponse) {
-          await transport.waitForResponse(op.ms, op.expect, opts.signal);
+          await transport.waitForResponse(op.ms, opts.signal);
         } else {
           await sleep(100, opts.signal);
         }

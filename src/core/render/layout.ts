@@ -109,9 +109,14 @@ export function displayLayout(size: LabelSize): LabelLayout {
 }
 
 export function multiLayout(cfg: Pick<MultiLabelConfig, 'labelWidth' | 'labelHeight' | 'labelsAcross' | 'gapMm'>): LabelLayout {
-  const lw = Math.round(cfg.labelWidth * PX_PER_MM);
-  const lh = Math.round(cfg.labelHeight * PX_PER_MM);
-  const gap = Math.round(cfg.gapMm * PX_PER_MM);
+  // The sizes need the same guard as the zone count above. A NaN width multiplied through here
+  // gives a NaN layout width and NaN zone geometry, which survives every later check and reaches
+  // the renderer — so the input is made finite and bounded here rather than trusted.
+  const mm = (v: number, min: number, max: number) =>
+    Number.isFinite(v) ? Math.max(min, Math.min(max, Math.round(v * PX_PER_MM))) : Math.round(min * PX_PER_MM);
+  const lw = mm(cfg.labelWidth, MIN_ZONE_MM, MAX_ZONE_MM);
+  const lh = mm(cfg.labelHeight, MIN_ZONE_MM, MAX_ZONE_MM);
+  const gap = Number.isFinite(cfg.gapMm) ? Math.max(0, Math.min(MAX_ZONE_MM, Math.round(cfg.gapMm * PX_PER_MM))) : 0;
   // Clamp the zone count to something the browser can lay out before allocating. A custom or
   // damaged value reached this function directly (the multi-label dialog clamps, but the store
   // and the tests do not), and Array.from({ length: 1e9 }) would try to build a billion zone
@@ -123,6 +128,9 @@ export function multiLayout(cfg: Pick<MultiLabelConfig, 'labelWidth' | 'labelHei
 
 /** The most zones a roll may be cut into. Matches LIMITS.multi.maxAcross. */
 const MAX_ZONES = 8;
+/** The per-zone bounds, matching singleLayout's 1-500 mm. */
+const MIN_ZONE_MM = 1;
+const MAX_ZONE_MM = 500;
 
 export function zoneAt(layout: LabelLayout, x: number, y: number): number | null {
   if (!layout.zones) return 0;

@@ -72,6 +72,7 @@ export const ar: Record<Key, string> = {
   deviceUnavailable: 'الجهاز مشغول أو خارج النطاق. شغّله واقترب أكثر ثم حاول مرة أخرى.',
   printFailed: 'فشلت الطباعة', printComplete: 'اكتملت الطباعة', printedCopies: 'تمت طباعة {n} نسخ', sending: 'جارٍ الإرسال {pct}%',
   connectFirst: 'اتصل بالطابعة أولًا',
+  modelUnanswered: 'لم تختر موديل الطابعة، لذلك أُلغيت الطباعة. افتح قائمة الطابعات واختر الموديل.',
   printersTitle: 'تعريفات الطابعات', builtin: 'مدمجة', customPrinter: 'مخصصة', addPrinter: 'إضافة طابعة', editPrinter: 'تعديل الطابعة',
   printerId: 'المعرّف', printerName: 'الاسم', protocol: 'البروتوكول', widthBytes: 'العرض (بايت)', dpi: 'DPI', alignment: 'المحاذاة',
   rotated: 'جانبية (مدوّرة)', tapePrinter: 'طابعة شريط', namePatterns: 'بادئات اسم البلوتوث (مفصولة بفواصل)',

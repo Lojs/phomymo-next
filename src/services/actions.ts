@@ -1,7 +1,7 @@
 /** User-level actions: adding elements, importing files, exporting designs. */
 import { useStore } from '../state/store';
 import { createBarcode, createImage, createQR, createShape, createText, type LabelElement, type ShapeType } from '../core/model/elements';
-import { paintLabel, prepareForRender } from '../core/render/label';
+import { assertRenderable, paintLabel, prepareForRender } from '../core/render/label';
 import { evaluateExpressions, parseCSV, substituteFields, toCSV } from '../core/template/template';
 import { designExists, exportDesignJSON, parseDesignJSON, saveDesign, type Design } from '../core/storage/storage';
 import { translate } from '../i18n';
@@ -83,6 +83,22 @@ const readAsDataURL = (file: Blob) =>
     r.readAsDataURL(file);
   });
 
+/**
+ * The largest file an import will read into memory.
+ *
+ * readAsDataURL holds the whole file as a string and a PDF additionally materialises every page,
+ * so an arbitrarily large drop could exhaust the tab's heap with nothing to catch it. 25 MB is far
+ * above any label image or design file and far below the point where the browser starts refusing.
+ */
+export const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
+
+/** Refuse a file too large to import safely, naming the limit rather than failing later. */
+export function assertImportable(file: File): void {
+  if (file.size > MAX_IMPORT_BYTES) {
+    throw new RangeError(`${file.name} is ${(file.size / 1048576).toFixed(1)} MB; the limit is ${MAX_IMPORT_BYTES / 1048576} MB`);
+  }
+}
+
 async function loadPdfFirstPage(file: File): Promise<LoadedImage> {
   const pdfjs = await import('pdfjs-dist');
   const worker = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
@@ -111,6 +127,7 @@ async function loadPdfFirstPage(file: File): Promise<LoadedImage> {
 }
 
 export async function loadImageFile(file: File): Promise<LoadedImage> {
+  assertImportable(file);
   if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) return loadPdfFirstPage(file);
   const dataUrl = await readAsDataURL(file);
   return new Promise((resolve, reject) => {
@@ -197,6 +214,10 @@ async function labelCanvas(scale: number): Promise<HTMLCanvasElement> {
   await prepareForRender(merged);
   const layout = st().layout();
   const cv = document.createElement('canvas');
+  // The same guard the print path uses, at the export scale. Exporting at 4x a 500 mm label
+  // asked for a canvas of tens of thousands of pixels a side; assigning that to cv.width throws
+  // inside the browser or silently produces a blank image, and there was no check here at all.
+  assertRenderable(Math.round(layout.width * scale), Math.round(layout.height * scale));
   cv.width = layout.width * scale;
   cv.height = layout.height * scale;
   const ctx = cv.getContext('2d');
@@ -248,6 +269,7 @@ export async function importDesignFile(file: File): Promise<{ ok: boolean; name:
   let finalName: string;
   let design: Design;
   try {
+    assertImportable(file);
     const parsed = parseDesignJSON(await file.text());
     design = parsed.design;
     finalName = parsed.name || file.name.replace(/\.json$/i, '');
@@ -282,6 +304,7 @@ export function importDesignAs(name: string, design: Design): boolean {
 
 /** Parse a design file without saving anything — used to preview it before a confirmation. */
 export async function readDesignFile(file: File): Promise<{ name: string; design: Design }> {
+  assertImportable(file);
   const parsed = parseDesignJSON(await file.text());
   const name = parsed.name || file.name.replace(/\.json$/i, '');
   return { name, design: parsed.design };
@@ -309,6 +332,7 @@ export function saveCurrentDesign(name: string): boolean {
  * anything else throws and is retried as Windows-1256, which also covers Latin accents correctly.
  */
 export async function readCsvText(file: File): Promise<string> {
+  assertImportable(file);
   if (typeof file.arrayBuffer !== 'function') return file.text();
   const buf = await file.arrayBuffer();
   try {

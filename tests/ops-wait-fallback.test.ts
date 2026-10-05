@@ -50,17 +50,19 @@ describe("runOps' wait fallback", () => {
 });
 
 describe('a transport that does have waitForResponse', () => {
-  it('forwards the timeout and the predicate', async () => {
-    const seen: { ms: number; expect?: (d: Uint8Array) => boolean }[] = [];
+  // F7 removed the `expect` predicate: no caller passed one, so the handshake filter it was meant
+  // to provide never existed in practice. What must survive is the timeout and the cancel signal.
+  it('forwards the timeout and the signal', async () => {
+    const seen: { ms: number; signal?: AbortSignal }[] = [];
     const t: Transport = {
       send: async () => {},
       delay: async () => {},
-      waitForResponse: async (ms, expect) => { seen.push({ ms, expect }); return null; },
+      waitForResponse: async (ms, signal) => { seen.push({ ms, signal }); return null; },
     };
-    const want = (d: Uint8Array) => d[0] === 0x1a;
-    await runOps(t, [{ t: 'wait', ms: 250, expect: want }]);
+    const controller = new AbortController();
+    await runOps(t, [{ t: 'wait', ms: 250 }], { signal: controller.signal });
     expect(seen).toHaveLength(1);
     expect(seen[0].ms).toBe(250);
-    expect(seen[0].expect).toBe(want);
+    expect(seen[0].signal).toBe(controller.signal);
   });
 });
