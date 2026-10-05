@@ -346,14 +346,43 @@ export async function rasterFor(elements: LabelElement[]): Promise<Raster> {
  * itself was a bug (the offset went negative and rows spilled into each other); this is the
  * remaining half: telling the user their design does not fit.
  */
-function warnIfWiderThanPrinter(layout: { width: number }, target: { widthBytes: number }): void {
-  // widthBytes is 8px per byte; the layout is in the same label pixels (8 px/mm).
-  const printablePx = target.widthBytes * 8;
-  if (layout.width <= printablePx) return;
+/**
+ * The printer's printable width in millimetres.
+ *
+ * widthBytes counts 8-dot bytes, so its length in millimetres depends on the head's DPI: 78 bytes
+ * is 78 mm on a 203 DPI printer but 52.8 mm on a 300 DPI one. Four of the built-in printers are
+ * 300 DPI, and the earlier version of this compared the label's 203 DPI pixels against
+ * `widthBytes * 8` and printed that byte count with an "mm" suffix — so a 54 mm label on an
+ * M02 Pro (52.8 mm of head) was clipped with no warning at all, while the warning that did appear
+ * quoted a width 25 mm too wide.
+ */
+function printableWidthMm(target: { widthBytes: number; dpi: number }): number {
+  return (target.widthBytes * 8 * 25.4) / (target.dpi || 203);
+}
+
+/**
+ * Warn once per print job that the design does not fit the printer's print width.
+ *
+ * rasterFor() runs once per label in a batch, so warning inside it queued one identical toast per
+ * record — a hundred records meant a hundred toasts. The flag is reset at the start of each job.
+ */
+let warnedThisJob = false;
+
+export function warnIfWiderThanPrinter(layout: { width: number }, target: { widthBytes: number; dpi: number }): void {
+  if (warnedThisJob) return;
+  const printableMm = printableWidthMm(target);
+  // The layout is in label pixels, 8 per millimetre.
+  if (layout.width / 8 <= printableMm) return;
+  warnedThisJob = true;
   st().toast(
-    tr('labelTooWide', { label: Math.round(layout.width / 8), printer: target.widthBytes }),
+    tr('labelTooWide', { label: Math.round(layout.width / 8), printer: Math.round(printableMm) }),
     'info',
   );
+}
+
+/** Reset the once-per-job warning latch. Called at the start of every print job. */
+export function beginPrintJob(): void {
+  warnedThisJob = false;
 }
 
 /**
@@ -393,6 +422,7 @@ export async function printCurrent(): Promise<boolean> {
   // their chunks on one transport — the exact bug this guard exists to prevent.
   if (printing) return false;
   printing = true;
+  beginPrintJob();
   const controller = new AbortController();
   currentPrintController = controller;
   try {
@@ -509,6 +539,7 @@ export async function printBatch(recordIndexes: number[], signal: AbortSignal): 
 export async function printDensityTest(): Promise<void> {
   if (printing) return;
   printing = true;
+  beginPrintJob();
   try {
     if (!(await ensureConnected())) return;
     st().setPrint({ active: true, label: tr('densityTest'), current: 0, total: 1, sub: '' });
@@ -533,6 +564,7 @@ export async function runBatch(indexes: number[]): Promise<boolean> {
   const controller = new AbortController();
   abort = controller;
   printing = true;
+  beginPrintJob();
   try {
     return await printBatch(indexes, controller.signal);
   } finally {

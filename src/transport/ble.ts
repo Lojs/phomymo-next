@@ -414,8 +414,21 @@ export class BLETransport {
       this.connected = true;
       trace('Connected to', this.device.name);
     } catch (e) {
-      // Give the radio link back before propagating. See the comment at the gatt.connect() call.
-      try { this.device?.gatt?.disconnect(); } catch { /* already gone */ }
+      // Detach the disconnect handler and bump the generation BEFORE dropping the link.
+      // gatt.disconnect() makes the browser fire 'gattserverdisconnected', and with the handler
+      // still current that ran the whole teardown — including onDisconnect(). The app then showed
+      // "disconnected" while connectPrinter() was still retrying, which re-enabled the Connect and
+      // Print buttons so a second connect could start alongside the first, and set
+      // droppedByItself, which could trigger an unwanted auto-reconnect when the tab regained
+      // focus. Bumping the generation first makes the event our own cleanup caused a no-op.
+      const device = this.device;
+      if (device && this._deviceDisconnectHandler) {
+        device.removeEventListener('gattserverdisconnected', this._deviceDisconnectHandler);
+        delete device._hasDisconnectHandler;
+      }
+      this._deviceDisconnectHandler = null;
+      this._generation += 1;
+      try { device?.gatt?.disconnect(); } catch { /* already gone */ }
       this.connected = false;
       this.server = null;
       this.service = null;

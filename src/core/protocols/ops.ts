@@ -34,12 +34,17 @@ export interface Transport {
 function race<T>(p: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return p;
   if (signal.aborted) return Promise.reject(new DOMException('Print cancelled', 'AbortError'));
-  return Promise.race([
-    p,
-    new Promise<never>((_r, reject) => {
-      signal.addEventListener('abort', () => reject(new DOMException('Print cancelled', 'AbortError')), { once: true });
-    }),
-  ]);
+  // The listener is removed once the race settles. `{ once: true }` only removes it if the signal
+  // actually fires, so a long job that never cancels kept one listener per delay op — hundreds on
+  // a big batch — attached to a signal that outlives the whole job.
+  let onAbort: (() => void) | undefined;
+  const armed = new Promise<never>((_r, reject) => {
+    onAbort = () => reject(new DOMException('Print cancelled', 'AbortError'));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  return Promise.race([p, armed]).finally(() => {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  });
 }
 
 /**
