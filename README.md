@@ -80,6 +80,17 @@ Bluetooth and USB printing use the **Web Bluetooth** and **WebUSB** APIs, which 
 **only in Chrome or Edge**, and **only in a secure context** — HTTPS, or
 `http://localhost`. That is why the container serves the app over HTTPS.
 
+**On a Mac, the app runs but cannot print.** Neither Safari nor Chrome on macOS
+implements Web Bluetooth or WebUSB — they are missing from the platform, not switched
+off. There is no AirPrint API for a browser to fall back on, so this is not something
+the app can work around. Everything else works: designing, the CSV template table, and
+export to PNG, PDF, JSON or CSV. The connect options are simply absent from the menu
+and a note explains why. The container itself runs on a Mac under Docker Desktop
+(the arm64 image is published); it is the browser that cannot reach the printer.
+
+Printing works from Chrome or Edge on Windows, Linux and Android. It does not work
+from Safari on macOS, iOS or iPadOS, which ship no Web Bluetooth implementation.
+
 > **A self-signed certificate is enough to print, but not to install.**
 > The browser will warn once; click through it and the origin counts as secure, so
 > Bluetooth and USB work. Installing as a PWA (Chrome refuses a service worker on an
@@ -107,6 +118,11 @@ to redirect from, so always use `https://` and the port explicitly.
 Compose publishes the port on all interfaces, so anything on your network can
 reach it. You only need to tell the container which address to put in its
 certificate.
+
+This is also the way around a browser that cannot print: serve the app from a
+Linux or Windows machine (or the Pi), then open it from Chrome or Edge on any
+other device on the network. Designing and exporting work everywhere; only printing
+needs a browser that implements Web Bluetooth or WebUSB.
 
 1. Find this machine's LAN IP — `hostname -I` on Linux, or check your router.
 2. Put it in `.env` (optional; without it the app assumes `localhost`):
