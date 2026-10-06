@@ -8,6 +8,11 @@ services:
     ports:
       - "8444:443"
     volumes:
+      # Certs must persist across restarts. The entrypoint generates a self-signed certificate on
+      # first run and writes a marker beside it — the domain and a fingerprint — so that a
+      # certificate the user supplied is never regenerated over. On a tmpfs the marker would vanish
+      # with it, and every restart would issue a certificate no browser has trusted, which presents
+      # as a hijack warning rather than as a changed file.
       - ./phomymo-certs:/certs
     env_file:
       - path: .env
@@ -15,8 +20,12 @@ services:
     environment:
       - TZ=UTC
     read_only: true
-    # nginx binds 443, creates its own temp dirs, and drops its workers to the unprivileged
-    # nginx user — so it needs these five back after everything else is dropped.
+    # nginx binds 443, chowns its temp dirs, drops its workers to the unprivileged nginx user, and
+    # writes the rendered config itself, so these five are added back after everything else is
+    # dropped. DAC_OVERRIDE is the one that is easy to leave out and hard to explain: the master is
+    # root, but with cap_drop ALL its privileges are exactly this list, and a root without
+    # DAC_OVERRIDE cannot write a path it does not own — the certificate directory, when the bind
+    # mount was created on the host and is owned by the host user.
     cap_drop:
       - ALL
     cap_add:
@@ -27,7 +36,11 @@ services:
       - DAC_OVERRIDE
     security_opt:
       - no-new-privileges:true
-    # Writable scratch for a read-only root.
+    # Writable scratch for a read-only root: nginx's temp paths and its pid file, and conf.d,
+    # because the entrypoint renders the config into /etc/nginx/conf.d/default.conf at startup. The
+    # template is copied to /usr/share/phomymo/ and deliberately NOT into conf.d — nginx loads every
+    # file in conf.d as a server config, so a template still holding ${PHOMYMO_DOMAIN} would make the
+    # config test fail at startup.
     tmpfs:
       - /var/cache/nginx:size=10m
       - /var/run:size=1m

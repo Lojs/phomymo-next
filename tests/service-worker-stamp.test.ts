@@ -24,7 +24,7 @@ import { join, resolve } from 'node:path';
 
 const ROOT = resolve(__dirname, '..');
 const TOKEN = '__PHOMYMO_BUILD_ID__';
-const STAMPED = /const VERSION = 'phomymo-[0-9a-f]{12}';/;
+const STAMPED = /const BUILD_ID = 'phomymo-[0-9a-f]{12}';/;
 
 const made: string[] = [];
 afterAll(() => {

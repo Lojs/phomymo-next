@@ -157,20 +157,31 @@ describe('the service worker', () => {
     expect(sw).toMatch(/url\.origin !== self\.location\.origin/);
   });
 
-  it('takes its version from the build rather than a hand-written constant', () => {
-    // The cache names embed this, so activate only deletes caches from other versions, and a
-    // changed name is what makes a new worker take over. It used to be a literal a human had to
-    // remember to bump — and because the build copied sw.js verbatim, forgetting it meant the
-    // worker never updated at all and the trim below never ran in any deployment. It is now stamped
-    // per build by the plugin in vite.config.ts; tests/service-worker-stamp.test.ts runs two real
-    // builds and proves the bytes differ, which this source-text assertion cannot.
-    expect(sw).toMatch(/const VERSION = '__PHOMYMO_BUILD_ID__'/);
+  it('takes its identity from the build rather than a hand-written constant', () => {
+    // This is what makes a new worker install: a browser compares the bytes of this file, and it
+    // used to be copied verbatim, so two releases shipped an identical worker and no update was
+    // ever taken. It was then a literal a human had to remember to bump. It is stamped per build by
+    // the plugin in vite.config.ts; tests/service-worker-stamp.test.ts runs two real builds and
+    // proves the bytes differ, which this source-text assertion cannot.
+    //
+    // It is deliberately NOT part of the cache names any more — see the test below.
+    expect(sw).toMatch(/const BUILD_ID = '__PHOMYMO_BUILD_ID__'/);
+  });
+
+  it('keeps the cache names independent of the build id', () => {
+    // The names used to embed the stamp, so activate discarded every cache on every release: the
+    // trim had nothing to do, and chunks that had not changed — pdf.js's worker, jsPDF,
+    // html2canvas — were re-downloaded each time, in an app meant to work offline.
+    expect(sw).toMatch(/const CACHE_VERSION = '/);
+    expect(sw).toMatch(/\$\{CACHE_PREFIX\}-\$\{CACHE_VERSION\}-shell/);
+    expect(sw).not.toMatch(/\$\{BUILD_ID\}-/);
   });
 
   it('trims the asset cache instead of letting it grow forever', () => {
-    // Hashed filenames change every release. Cache NAMES are versioned, so activate discards the
-    // previous release's caches, but orphaned entries *inside* the current release's cache were
-    // never removed: one dead chunk per deploy, kept indefinitely.
+    // Hashed filenames change every release, so orphaned entries *inside* the cache accumulate: one
+    // dead chunk per deploy, kept indefinitely. The cache names are stable now, which makes this the
+    // only thing that removes them — before, activate discarded the whole cache per release and the
+    // trim was dead code.
     expect(sw).toMatch(/trimAssets/);
     expect(sw).toMatch(/cache\.keys\(\)/);
     expect(sw).toMatch(/cache\.delete\(/);

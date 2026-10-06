@@ -21,15 +21,33 @@
  * with different app bundles both produced `sw.js` sha256 9b2641933d58a6f7.
  *
  * Deriving it from the build also removes the failure mode that a human forgets to bump it, which
- * is what the old `phomymo-v3` literal relied on. The cache names embed this, so `activate` deletes
- * the previous release's caches and a changed name is what makes the new worker take over.
+ * is what the old `phomymo-v3` literal relied on. If the stamp is missing the build fails rather
+ * than shipping this token.
  *
- * If the stamp is missing the build fails rather than shipping this token: an unstamped worker
- * would keep one cache name forever, and the trim would silently stop running again.
+ * It is deliberately NOT part of the cache names. It used to be: the caches were `${VERSION}-shell`
+ * and `${VERSION}-assets`, so `activate` discarded the previous release's caches wholesale and the
+ * trim below had nothing left to do. That made the trim machinery pointless and, worse, threw away
+ * chunks that had not changed — pdf.js's worker, jsPDF and html2canvas keep the same hashed names
+ * between releases, and this app is meant to open with no network, so every release made the user
+ * re-download about 2 MB of them. The id's only job is to make these bytes differ; the cache names
+ * are governed by CACHE_VERSION, which changes when the cache layout does.
  */
-const VERSION = '__PHOMYMO_BUILD_ID__';
-const SHELL = `${VERSION}-shell`;
-const ASSETS = `${VERSION}-assets`;
+const BUILD_ID = '__PHOMYMO_BUILD_ID__';
+// Kept reachable so nothing can treat the constant as dead and drop the bytes the browser compares.
+// The name deliberately does not repeat the token above: the build stamps every occurrence of it,
+// and a second one in an identifier would ship a placeholder in a name.
+self.__phomymoBuildId = BUILD_ID;
+
+/**
+ * The cache layout's version. Bump this when what is stored, or how, changes — a cache-first asset
+ * that is no longer immutable, a revalidation rule, the shell's URL list.
+ *
+ * Not per build: see BUILD_ID.
+ */
+const CACHE_PREFIX = 'phomymo';
+const CACHE_VERSION = 'v1';
+const SHELL = `${CACHE_PREFIX}-${CACHE_VERSION}-shell`;
+const ASSETS = `${CACHE_PREFIX}-${CACHE_VERSION}-assets`;
 
 const SHELL_URLS = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg', '/asset-manifest.json'];
 
@@ -51,8 +69,12 @@ const isIcon = (url) =>
  *
  * Hashed filenames change every release, so the ASSETS cache accumulated one dead entry per built
  * chunk per deploy and nothing ever removed them: the pdf.js worker alone is ~1.2 MB, so a year of
- * updates leaves a browser holding megabytes of orphaned JavaScript. Cache NAMES are versioned, so
- * `activate` already discards the previous *release's* caches wholesale.
+ * updates leaves a browser holding megabytes of orphaned JavaScript.
+ *
+ * This is the only thing that removes them, and it now has to be. The cache names used to embed the
+ * build id, which meant `activate` threw the whole cache away on every release and this function had
+ * nothing to do — at the cost of re-downloading every unchanged chunk. The names are stable now, so
+ * the cache survives a release and the trim is what keeps it honest.
  *
  * An earlier version of this tried to trim by keeping "whatever is under /assets/" — which is a
  * tautology: every entry under /assets/ is kept precisely because it is under /assets/, so the
@@ -94,7 +116,16 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => !k.startsWith(VERSION)).map((k) => caches.delete(k))))
+      // Every cache of ours that is not one of these two. That covers `phomymo-<build id>-shell`
+      // from every release up to 1.0.24, which would otherwise leak forever now that the names no
+      // longer carry the id.
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((k) => k.startsWith(`${CACHE_PREFIX}-`) && k !== SHELL && k !== ASSETS)
+            .map((k) => caches.delete(k)),
+        ),
+      )
       .then(trimAssets)
       .then(() => self.clients.claim()),
   );

@@ -72,7 +72,9 @@ function buildStamp(): Plugin {
         throw new Error(`sw.js has no ${TOKEN} token to stamp — the service worker would never update`);
       }
       if (!id) throw new Error('sw.js was not stamped: no build id was computed');
-      writeFileSync(file, source.replace(TOKEN, `phomymo-${id}`));
+      // Every occurrence, not the first: a second mention would otherwise ship as a literal
+      // placeholder, and the guard above would not notice because the file did contain the token.
+      writeFileSync(file, source.replaceAll(TOKEN, `phomymo-${id}`));
     },
   };
 }

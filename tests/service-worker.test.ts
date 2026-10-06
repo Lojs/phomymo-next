@@ -21,22 +21,25 @@ const ORIGIN = 'https://printer.example';
  * The worker's own cache names, read from its source.
  *
  * They used to be written out here as `phomymo-v3-assets`, which meant every assertion below broke
- * the moment the version moved — and it made the test a second place that had to know the version.
- * The version is stamped per build now, so it cannot be a literal in a test either.
+ * the moment the naming moved — and it made the test a second place that had to know it. So the
+ * prefix and the layout version come out of the worker's own constants.
  */
-const version = /const VERSION = '([^']+)'/.exec(source)?.[1];
-if (!version) throw new Error('public/sw.js has no VERSION to read');
-const ASSETS = `${version}-assets`;
-const SHELL = `${version}-shell`;
+const cachePrefix = /const CACHE_PREFIX = '([^']+)'/.exec(source)?.[1];
+const cacheVersion = /const CACHE_VERSION = '([^']+)'/.exec(source)?.[1];
+if (!cachePrefix || !cacheVersion) throw new Error('public/sw.js has no cache naming to read');
+const ASSETS = `${cachePrefix}-${cacheVersion}-assets`;
+const SHELL = `${cachePrefix}-${cacheVersion}-shell`;
 
 /** One cache entry URL, as cache.keys() would report it. */
 const entryUrl = (path: string) => `${ORIGIN}${path}`;
 
 /** A fake Cache Storage, and a fetch that serves the asset manifest when asked for it. */
-function harness(cached: string[], manifest: unknown) {
+function harness(cached: string[], manifest: unknown, extraCaches: string[] = []) {
   // One entry set per cache name, seeded with everything the harness was given.
   const seeded = [...cached];
   const store = new Map<string, Set<string>>([[ASSETS, new Set(seeded.map(entryUrl))], [SHELL, new Set(seeded.map(entryUrl))]]);
+  // Caches under names this worker does not use, to check what activate() does with them.
+  for (const name of extraCaches) store.set(name, new Set());
   const deleted: string[] = [];
 
   const cacheFor = (name: string) => ({
@@ -129,6 +132,36 @@ describe('the service worker, run for real', () => {
       await h.activate();
       expect([...(h.store.get(ASSETS) ?? [])]).toHaveLength(1);
     }
+  });
+
+  it('names its caches independently of the build id', () => {
+    // N5, from the v1.0.24 review. The cache names used to embed the per-build stamp, so `activate`
+    // discarded every cache on every release: the trim below never had anything to do, and chunks
+    // that had not changed — pdf.js's worker, jsPDF, html2canvas, which keep their hashed names —
+    // were thrown away and re-downloaded. This app is meant to open with no network.
+    //
+    // The build id itself stays in the file: a browser installs an update only when these bytes
+    // differ, so it still has to be here. Only the cache names stop depending on it.
+    expect(SHELL).not.toMatch(/[0-9a-f]{12}/);
+    expect(ASSETS).not.toMatch(/[0-9a-f]{12}/);
+    expect(source).toContain('const BUILD_ID = ');
+  });
+
+  it('removes caches named after an older build, from before the names were stable', async () => {
+    // Every release up to 1.0.24 named its caches `phomymo-<build id>-shell`, so a browser upgrading
+    // from one of those has them lying around; naming caches differently now would leak them forever.
+    const h = harness([], CURRENT, ['phomymo-9b2641933d58-shell', 'phomymo-9b2641933d58-assets']);
+    await h.activate();
+    expect([...h.store.keys()]).not.toContain('phomymo-9b2641933d58-shell');
+    expect([...h.store.keys()]).not.toContain('phomymo-9b2641933d58-assets');
+    expect([...h.store.keys()]).toContain(SHELL);
+    expect([...h.store.keys()]).toContain(ASSETS);
+  });
+
+  it('leaves a cache that is not ours alone', async () => {
+    const h = harness([], CURRENT, ['some-other-cache']);
+    await h.activate();
+    expect([...h.store.keys()]).toContain('some-other-cache');
   });
 
   it('never deletes a shell URL', async () => {
