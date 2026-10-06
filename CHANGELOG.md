@@ -8,6 +8,77 @@ actually does now.
 The commits are the source of truth for anything more granular. Commit messages in this repository
 carry the reasoning in full; this file is the index.
 
+## 1.0.25
+
+### Fixed
+- **A photograph printed too light and too flat on a 300 DPI head.** An image was halftoned at the
+  203 DPI authoring grid and then resampled up: `ditherPreview()` rendered the halftone at the
+  element's size in label pixels, and the renderer drew it into a canvas scaled by 300/203 with
+  smoothing on. Bilinear interpolation of a 1-bit image spreads each dot over its neighbours' grey,
+  and the threshold that follows turns those greys into clumps. This is the same
+  "203 DPI bitmap interpolated to 300" that 1.0.22 removed for the whole label, surviving inside
+  images. Each image is now binarised at the resolution it will print at and drawn without
+  smoothing, which is a 1:1 mapping.
+
+  Measured in a browser on a photo-like source, mean tone error per band across the image's box:
+
+  | | 203 DPI | 300 DPI |
+  |---|---|---|
+  | before | 0.0010 | 0.0475 |
+  | after | 0.0010 | 0.0017 |
+
+  203 DPI is unchanged, as it must be — nothing is resampled there. The bands before the fix read
+  `92.5 83.2 69.9 55.9 41.1 28.6 18.6 12.0 6.8 3.0` against an ideal of
+  `88.2 76.2 63.9 53.2 42.8 34.0 26.2 18.6 11.0 5.2`: darks darker, lights lighter, which is the
+  contrast a smoothed halftone loses.
+
+  The 1.0.24 notes said the 300 DPI image was "about 1 point lighter … accepted rather than papered
+  over". A single ink total for the whole image hid a systematic mid-tone collapse — the 53% grey
+  band was printing at 37% — so that was the wrong number to judge it by, and the wrong conclusion.
+
+  **Not verified on paper.** A physical print on a 300 DPI head is the check that settles this, and
+  the printer available here is 203 DPI (M221), where the code path does not change. The numbers
+  above come from a real canvas, not from a real printer.
+- **The CSV round trip lost data in three places.** Found by fuzzing the writer against the reader —
+  3000 values over an alphabet built from every character that matters to either side.
+  - A value the user's own data began with an apostrophe was silently edited: `'=SUM(1)` came out of
+    a round trip as `=SUM(1)`. The reader trims every field before it strips the guard, and could not
+    tell the user's quote from its own; a literal apostrophe is now escaped by doubling it, and
+    exactly one level comes off on import.
+  - A record whose every field was empty serialised to an empty line, which the reader treats as a
+    blank line and drops — two rows in, none out. Such a row is now written `""`, which the reader
+    already documents as an empty *cell*.
+  - A header containing a literal tab or semicolon made the delimiter sniffer choose that character
+    as the delimiter and split that header into two columns. The writer quoted commas, quotes and
+    newlines but not those.
+- **`npm audit` reported one high advisory** (source-map-js, reached only through the test tooling)
+  and it is cleared. CI had no audit step at all; it now gates on `npm audit --omit=dev
+  --audit-level=high` and prints the full audit for information, so a runtime advisory blocks a
+  release and a build-only one cannot block it for the wrong reason.
+
+### Changed
+- **The offline cache now survives a release.** Cache names used to embed the per-build id, so
+  `activate` discarded every cache on every release: the asset trim had nothing left to do, and
+  chunks that had *not* changed went with it. pdf.js's worker, jsPDF and html2canvas keep the same
+  hashed names between releases, so each update made the browser re-download roughly 2 MB — in an app
+  whose point is that it opens with no network. The build id still changes the worker's bytes, which
+  is what makes a browser install the update; the cache names are governed separately now, and the
+  trim is what keeps them honest. Caches from 1.0.24 and earlier are removed on the first update.
+- **Two rules that the design depends on now have tests, because removing them broke nothing.** The
+  composite mode in `rasterFor()` — the single argument that 1.0.22 and 1.0.24 turn on — could be
+  changed from `threshold` to `auto` and the whole suite still passed, its test having been deleted
+  along with the `modeFor()` it replaced. The same was true of the build's refusal to ship an
+  unstamped service worker. Both mutations now fail the suite.
+- **The build stamps every occurrence of its token.** It replaced the first only, while the guard
+  above it checked `includes()` — so a second mention would have shipped as a literal placeholder
+  with the guard satisfied.
+
+### Notes
+- The rationale comments for the container's certificate mount, capabilities and tmpfs are back,
+  written from what the entrypoint does rather than from memory.
+- The `compose.yaml` and `README.md` simplification of 1.0.24 stands; only the load-bearing reasons
+  were restored.
+
 ## 1.0.24
 
 ### Fixed
