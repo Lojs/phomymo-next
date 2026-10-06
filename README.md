@@ -136,7 +136,7 @@ npm run test:ci     # the same, plus coverage thresholds — what CI runs
 npm run typecheck
 ```
 
-**1349 tests** across 60 files. Many are **golden tests**: they compare this
+**1362 tests** across 61 files. Many are **golden tests**: they compare this
 rewrite's output byte-for-byte against a frozen copy of the original
 implementation in `tests/legacy/`, so a refactor cannot quietly change what
 reaches the paper.

@@ -8,6 +8,64 @@ actually does now.
 The commits are the source of truth for anything more granular. Commit messages in this repository
 carry the reasoning in full; this file is the index.
 
+## 1.0.24
+
+### Fixed
+- **The service worker was never replaced.** Its cache name was a constant — `phomymo-v3`, then `v2` —
+  so a browser that had installed one version kept that worker and its cached assets for as long as
+  the string did not change. A build now stamps the worker with an id derived from the build's own
+  content, and **the build fails if the stamp is missing**, so a worker that cannot change cannot
+  ship. The trimming that removes dead hashed assets runs in `activate`, which is only reached when
+  the worker is replaced — so that fix had been inert in every release containing it.
+- **An image whose type the browser reports as empty disappeared on the next load.** A file with no
+  usable MIME type is read as `data:application/octet-stream;base64,…`, and the guard required
+  `data:image/`, so the element displayed and printed and was then filtered out silently when the
+  design was reopened, with no message. The requirement was always "no network URL": any `data:` URL
+  is accepted now, and `https:`, `//`, `javascript:`, `blob:` and `file:` are still refused.
+- **An exported CSV header could carry a live formula.** Field names come from the design file, so an
+  imported template controls them, and the header row went out through a plain CSV escaper while
+  every data row was guarded. Headers are guarded now — and unguarded on the way back in, because
+  guarding one side only would have made a field name gain an apostrophe on every round trip and
+  stop matching the template that refers to it.
+- **A value typed with its own leading apostrophe came back edited.** `'=SUM(1)` returned as
+  `=SUM(1)`, because import stripped any leading quote followed by a formula character and could not
+  tell the user's quote from its own guard. A literal apostrophe is now escaped by doubling it, and
+  exactly one level is removed on import, so the round trip is lossless.
+- **One save in another tab produced one error toast.** The other tab autosaves on every edit, so a
+  busy minute stacked dozens of identical toasts over everything else on screen. One warning per key
+  per minute now: the condition cannot change between them, so the tenth said nothing the first did
+  not.
+- **A saved design was trusted where an autosave was repaired.** `loadDesign()` clamped the label size
+  and filtered the elements, then cast the multi-label grid and the template rows straight through —
+  so a saved design with `labelsAcross: 0` reached the layout code that divides by it, purely because
+  it had arrived as a saved design rather than an autosave. Both loaders share one repair now.
+- **The dithering control claimed more than it knew.** An image with no explicit choice was resolved
+  by a heuristic, while the button named one of the four algorithms. **Automatic** is a real, listed
+  value and the one an unset image shows: it names the setting, which is what can be named honestly.
+- **A picture no longer drags the text beside it into a halftone.** The rule "threshold unless the
+  label contains an image" went back onto the photo heuristic as soon as any image was present, so a
+  logo put the whole label, text included, through error diffusion. Each image is now binarised as it
+  is drawn and the composite is always a plain threshold. That also deletes the two functions that
+  decided a label-wide mode.
+
+  Measured on a label holding a photographic image and a line of Arabic, old path against new, in a
+  browser at 203 and 300 DPI: the image keeps its tone (29.02% → 29.01% ink at 203 DPI, 28.97% →
+  28.02% at 300) and the text gains about 6% ink from the threshold keeping its antialiased edges.
+  Isolated dots: **0 in both**. So the structure is right — an image's setting now applies to the
+  image — but the visible benefit is smaller than the premise suggested, and 1.0.22's "two
+  independent causes" overstated the dithering's share: the speckle it measured needed the 203→300
+  upscale as well, and that is already gone.
+
+### Changed
+- A menu decides whether to open upward against the nearest ancestor that clips it rather than the
+  window. Measured at 390×700 and 900×620: the app's panel reaches the window's bottom in both
+  layouts and its menus are 42–44 px, so no case was found where the two disagree. This is hardening
+  of the measurement, not a fix for a demonstrated failure.
+- Two comments corrected to match the code. `teardown()` claimed all three paths out of a connection
+  went through it while two do — the third, a spontaneous drop, is deliberately elsewhere because it
+  is the only case that marks the drop unexpected. The matching line in 1.0.19 said the same and was
+  corrected with it.
+
 ## 1.0.23
 
 ### Changed
