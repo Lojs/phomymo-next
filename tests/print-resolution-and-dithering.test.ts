@@ -30,8 +30,16 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { buildRaster, renderPixels, rasterScale, type RasterTarget } from '../src/core/render/label';
 import { singleLayout } from '../src/core/render/layout';
-import { createText } from '../src/core/model/elements';
-import { resolveImageMode } from '../src/core/render/draw';
+import { createImage, createText } from '../src/core/model/elements';
+import { ditherPreview, drawElement, resolveImageMode } from '../src/core/render/draw';
+
+// drawElement() needs a decoded image, and jsdom never loads one. Everything else in this file draws
+// text, so this is the only module that has to be faked.
+vi.mock('../src/core/render/images', () => ({
+  getImage: () => ({ naturalWidth: 4, naturalHeight: 4 }) as HTMLImageElement,
+  loadImage: async () => null,
+  onImageLoaded: () => () => {},
+}));
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -122,6 +130,81 @@ describe('the artwork is rendered at the head resolution, not upscaled to it', (
   it('gives a 203 DPI head the layout size unchanged', () => {
     const r = buildRaster([createText('A')], layout(), target({ dpi: 203 }), 'threshold');
     expect(r.heightLines).toBe(320);
+  });
+});
+
+/**
+ * N1, from the v1.0.24 review: an image was binarised at the label grid and then smooth-upscaled by
+ * the render scale, so on a 300 DPI head the halftone was interpolated and the threshold that
+ * followed turned the blurred dots into clumps. Measured in a browser on a black-to-white ramp:
+ * mean tone error per band 0.096 against 0.0007 for a device-resolution binarisation, the 53% grey
+ * band printing as 37% and the 30% band as 14%, with the isolated-dot share falling 0.267 -> 0.119.
+ *
+ * jsdom cannot see those pixels, so what is pinned here is what decides them: the halftone's own
+ * dimensions, and that it reaches the canvas without being resampled.
+ */
+describe('N1: an image is binarised at the resolution it will print at', () => {
+  const img = { naturalWidth: 4, naturalHeight: 4 } as HTMLImageElement;
+  const image = () => createImage('data:image/png;base64,AAAA', { width: 200, height: 120 });
+
+  /** Record every drawImage along with the smoothing setting in force when it was called. */
+  function recordDraws() {
+    const draws: { src: HTMLCanvasElement; smoothing: boolean | undefined }[] = [];
+    const underlying = HTMLCanvasElement.prototype.getContext;
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement, ...args: unknown[]) {
+      const ctx = (underlying as (...a: unknown[]) => CanvasRenderingContext2D | null).apply(this, args);
+      if (ctx) {
+        ctx.drawImage = ((src: HTMLCanvasElement) => void draws.push({ src, smoothing: ctx.imageSmoothingEnabled })) as typeof ctx.drawImage;
+      }
+      return ctx;
+    });
+    return draws;
+  }
+
+  it('binarises at the label grid for a 203 DPI head', () => {
+    const cv = ditherPreview(img, image(), rasterScale(203));
+    expect(cv.width).toBe(200);
+    expect(cv.height).toBe(120);
+  });
+
+  it('binarises at the device resolution for a 300 DPI head', () => {
+    const scale = rasterScale(300);
+    const cv = ditherPreview(img, image(), scale);
+    // Before this fix the scale did not exist: this canvas was 200x120 on every head, and the
+    // 1.478x upscale happened after the halftone had already been made.
+    expect(cv.width).toBe(Math.round(200 * scale));
+    expect(cv.height).toBe(Math.round(120 * scale));
+  });
+
+  it('does not serve a 300 DPI render from the 203 DPI cache entry', () => {
+    // The cache is keyed on the resulting pixel dimensions, so two heads cannot share an entry.
+    const el = image();
+    const small = ditherPreview(img, el, 1);
+    const large = ditherPreview(img, el, rasterScale(300));
+    expect(small.width).toBe(200);
+    expect(large.width).toBe(Math.round(200 * rasterScale(300)));
+    expect(ditherPreview(img, el, 1).width).toBe(200);
+  });
+
+  it('draws it at the device size, with smoothing off', () => {
+    const draws = recordDraws();
+    const ctx = document.createElement('canvas').getContext('2d')!;
+    drawElement(ctx, image(), { ditherImages: true, scale: rasterScale(300) });
+    // Two draws: the first is ditherPreview() putting the source image onto its own canvas, the
+    // second is the finished halftone going onto the label.
+    expect(draws).toHaveLength(2);
+    const halftone = draws[1];
+    expect(halftone.src.width).toBe(Math.round(200 * rasterScale(300)));
+    // A 1:1 mapping needs no interpolation, and interpolating a 1-bit image is what merged the dots.
+    expect(halftone.smoothing).toBe(false);
+  });
+
+  it('leaves the 203 DPI path exactly as it was', () => {
+    const draws = recordDraws();
+    const ctx = document.createElement('canvas').getContext('2d')!;
+    drawElement(ctx, image(), { ditherImages: true, scale: 1 });
+    expect(draws[1].src.width).toBe(200);
+    expect(draws[1].src.height).toBe(120);
   });
 });
 

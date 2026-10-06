@@ -15,6 +15,19 @@ export interface DrawOptions {
   preview?: boolean;
   /** Show images as they will be dithered on paper. */
   ditherImages?: boolean;
+  /**
+   * Device pixels per label pixel — `rasterScale(dpi)`, set by renderPixels().
+   *
+   * The context is scaled by this, so a coordinate-free shape scales for free. An image does not:
+   * it has to be *binarised* at this resolution, because binarising at the label grid and then
+   * letting the scaled context resample the result is the 203-DPI-bitmap-interpolated-up problem
+   * again, one image at a time. Measured on a 300 DPI head with a black-to-white ramp, in a real
+   * browser: binarise at the label grid, smooth-upscale by 1.478 and threshold, and the mean tone
+   * error per band is 0.096 — the 53% grey band lands at 37% and the 30% grey band at 14%, so the
+   * midtones collapse and the dot structure merges (isolated-dot share 0.267 -> 0.119). Binarising
+   * at device resolution and mapping it 1:1 gives 0.0007.
+   */
+  scale?: number;
 }
 
 export function drawElement(ctx: Ctx, el: LabelElement, opts: DrawOptions = {}): void {
@@ -170,9 +183,17 @@ export function resolveImageMode(px: Uint8ClampedArray, w: number, h: number, de
   return shouldUseDithering(px, w, h) ? 'floyd-steinberg' : 'none';
 }
 
-function ditherPreview(img: HTMLImageElement, el: ImageElement): HTMLCanvasElement {
-  const w = Math.max(1, Math.round(el.width));
-  const h = Math.max(1, Math.round(el.height));
+/**
+ * The image binarised at the resolution it will be printed at.
+ *
+ * `scale` is the device scale. The cache key is built from the resulting pixel dimensions rather
+ * than the element's size, so a 203 DPI render and a 300 DPI render of the same element cannot
+ * share an entry — which is what would happen if the key used `el.width` and the scale were only
+ * applied afterwards.
+ */
+export function ditherPreview(img: HTMLImageElement, el: ImageElement, scale = 1): HTMLCanvasElement {
+  const w = Math.max(1, Math.round(el.width * scale));
+  const h = Math.max(1, Math.round(el.height * scale));
   const key = `${el.id}|${el.imageData.length}|${w}|${h}|${el.dither ?? 'auto'}|${el.brightness || 0}|${el.contrast || 0}`;
   const hit = ditherCache.get(key);
   if (hit) return hit;
@@ -206,9 +227,11 @@ function drawImage(ctx: Ctx, el: ImageElement, width: number, height: number, op
   if (!img || !img.naturalWidth) return;
   if (opts.ditherImages) {
     ctx.save();
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'medium';
-    ctx.drawImage(ditherPreview(img, el), -width / 2, -height / 2, width, height);
+    // No smoothing. The halftone is already at device resolution, so this draw maps it 1:1 onto
+    // device pixels; interpolating a 1-bit image spreads each dot over its neighbours' grey and the
+    // threshold that follows turns those greys into clumps. See DrawOptions.scale.
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(ditherPreview(img, el, opts.scale ?? 1), -width / 2, -height / 2, width, height);
     ctx.restore();
     return;
   }

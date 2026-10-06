@@ -327,9 +327,24 @@ const FORMULA_LEAD = /^[=+\-@\t\r]/;
  * corruption, and the round trip was only lossless for values nobody had needed to guard by hand.
  */
 export function csvCell(value: unknown): string {
-  const v = value === null || value === undefined ? '' : String(value);
+  const raw = value === null || value === undefined ? '' : String(value);
+  // The importer trims every field before it strips the guard, so the guard has to be decided on the
+  // same value the importer will see. Deciding on the untrimmed value put the two ends out of step
+  // for exactly one shape: `" '-5"` is neither quote-led nor formula-led, so it was written as-is,
+  // trimmed to `"'-5"` on the way back in, and then mistaken for a guarded cell — the apostrophe the
+  // user's own data contained was stripped. A fuzzer over an alphabet full of apostrophes found 40
+  // such cases out of 5756.
+  //
+  // Writing the trimmed value is therefore not a loss: the trim already happens on import, so a
+  // padded value could never have round-tripped anyway. This makes both ends agree about it.
+  const v = raw.trim();
   const safe = v.startsWith("'") || FORMULA_LEAD.test(v) ? `'${v}` : v;
-  return /[",\n\r]/.test(safe) ? '"' + safe.replace(/"/g, '""') + '"' : safe;
+  // Tabs and semicolons are quoted too, because parseCSV picks the delimiter by counting candidates
+  // in the header line: a header containing a literal tab made the reader choose TAB as the
+  // delimiter and split that one header into two columns. Quoting is what suppresses a delimiter —
+  // the sniffer skips quoted characters — so the writer has to quote every character the reader may
+  // treat as one. Commas and newlines were already covered; these were not.
+  return /[",\n\r\t;]/.test(safe) ? '"' + safe.replace(/"/g, '""') + '"' : safe;
 }
 
 /**
@@ -354,6 +369,9 @@ export function toCSV(headers: string[], records: TemplateRecord[]): string {
   // false are values.
   return [
     headers.map((h) => csvCell(h)).join(','),
-    ...records.map((r) => headers.map((h) => csvCell(r[h])).join(',')),
+    // A record whose fields are all empty serialises to an empty line, and the reader treats a
+    // trailing empty line as no row at all — the record disappeared on a round trip. `""` is the
+    // same cell, written so that it survives; found by fuzzing the round trip.
+    ...records.map((r) => headers.map((h) => csvCell(r[h])).join(',') || '""'),
   ].join('\n');
 }

@@ -77,7 +77,12 @@ export function rasterScale(dpi: number): number {
 /**
  * @param scale - render at `scale`x the layout's pixel size. The layout and the elements stay in
  *   label pixels; the context is scaled instead, so everything that has no coordinate of its own —
- *   stroke widths, corner radii, barcode module sizes, image resampling — scales with it.
+ *   stroke widths, corner radii, barcode module sizes — scales with it.
+ *
+ *   An image is the exception and is passed the scale itself: text and shapes are drawn from
+ *   vectors, so a bigger transform draws them better, but an image is a bitmap that has to be
+ *   binarised, and binarising it at the label grid would leave the scaled context resampling a
+ *   halftone. See DrawOptions.scale.
  *
  * Images are drawn already binarised (`ditherImages`). The composite is thresholded as a whole
  * afterwards, so anything still in continuous tone at that point would pull the text beside it into
@@ -95,7 +100,7 @@ export function renderPixels(elements: LabelElement[], layout: LabelLayout, scal
   const ctx = cv.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('Could not get a 2D canvas context');
   if (scale !== 1) ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  paintLabel(ctx, elements, layout, { ditherImages: true });
+  paintLabel(ctx, elements, layout, { ditherImages: true, scale });
   return { pixels: ctx.getImageData(0, 0, width, height).data, width, height };
 }
 

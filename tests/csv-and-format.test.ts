@@ -106,8 +106,13 @@ describe('toCSV preserves a zero', () => {
     expect(toCSV(['flag'], [{ flag: false } as never])).toBe('flag\nfalse');
   });
 
-  it('writes a real empty cell only for null/undefined', () => {
-    expect(toCSV(['v'], [{ v: null } as never, { v: undefined } as never])).toBe('v\n\n');
+  it('writes a real empty cell for null/undefined, quoted so the row survives', () => {
+    // `""` is an empty *cell* — parseRows() already says so, and treats a truly empty line as a blank
+    // line instead. With one column that empty line is the whole row, so the record was dropped on a
+    // round trip: two rows in, zero rows back. The cell is still empty; it is written so that it
+    // exists. Found by fuzzing the round trip rather than by reading either function.
+    expect(toCSV(['v'], [{ v: null } as never, { v: undefined } as never])).toBe('v\n""\n""');
+    expect(parseCSV(toCSV(['v'], [{ v: null } as never])).records).toHaveLength(1);
   });
 
   it('quotes a value containing a newline, and quotes a CR', () => {

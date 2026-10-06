@@ -43,6 +43,18 @@ jobs:
       - name: تثبيت التبعيات
         run: npm ci
 
+      # A runtime advisory blocks a release; a build-only one does not, and that difference is worth
+      # encoding rather than judging by eye. `npm audit` once reported a HIGH advisory that reached
+      # only the test tooling (source-map-js, through vitest's coverage reporter) — a package that is
+      # never in the shipped bundle. --omit=dev asks the question that matters and fails the build;
+      # the full audit is printed for information, without failing on it.
+      - name: تدقيق تبعيات وقت التشغيل
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: تدقيق كامل — للمعلومة فقط
+        continue-on-error: true
+        run: npm audit
+
       # tests/nginx-runtime.test.ts starts a real nginx and skips itself when there is none.
       - name: تثبيت nginx لاختبار الإعدادات
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends nginx-light

@@ -18,7 +18,7 @@
  */
 import { describe, it, expect, afterAll } from 'vitest';
 import { build } from 'vite';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -69,6 +69,29 @@ describe('the built service worker carries this build\'s identity', () => {
     expect(stamp(a)).not.toBe(stamp(b));
     expect(a).not.toBe(b);
   }, 120_000);
+
+  it('refuses to ship a worker it cannot stamp', async () => {
+    // The guard exists so that a worker which cannot change cannot ship. Deleting it left the suite
+    // green, which is the wrong way round: what it prevents is silent, and permanent — the cache
+    // name freezes and every later release is inert, which is the original defect.
+    //
+    // The public directory is overridden rather than the working tree edited, so the real sw.js is
+    // never touched: Vite copies this one into outDir and closeBundle() reads it from there.
+    const publicDir = mkdtempSync(join(tmpdir(), 'phomymo-unstamped-'));
+    const outDir = mkdtempSync(join(tmpdir(), 'phomymo-stamp-'));
+    made.push(publicDir, outDir);
+    // A worker of the shape shipped before the fix: a literal version, nothing to stamp.
+    writeFileSync(join(publicDir, 'sw.js'), "const VERSION = 'phomymo-v2';\n");
+    await expect(
+      build({
+        root: ROOT,
+        configFile: resolve(ROOT, 'vite.config.ts'),
+        logLevel: 'silent',
+        publicDir,
+        build: { outDir, emptyOutDir: true },
+      }),
+    ).rejects.toThrow(/token to stamp/);
+  }, 60_000);
 
   it('is identical for two builds of the same code', async () => {
     // A reproducible build must stay reproducible: the id comes from the emitted content, not from
