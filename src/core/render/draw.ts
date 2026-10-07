@@ -236,6 +236,13 @@ export function ditherPreview(img: HTMLImageElement, el: ImageElement, scale = 1
   }
   c.putImageData(data, 0, 0);
   ditherCache.set(key, cv);
+  // One entry per element per hand. The halftone depends on the angle now, so dragging the rotation
+  // slider walks through cache entries — and the limit below counts entries, not bytes. Measured cost
+  // of one halftone at the largest label size is ~72 ms in node, more in a browser, with a canvas of
+  // 11 MB; fifty of those is half a gigabyte held for an element the user is only turning.
+  for (const k of ditherCache.keys()) {
+    if (k !== key && k.startsWith(`${el.id}|`)) ditherCache.delete(k);
+  }
   if (ditherCache.size > 50) ditherCache.delete(ditherCache.keys().next().value!);
   return cv;
 }

@@ -22,8 +22,11 @@ carry the reasoning in full; this file is the index.
   parent rotation. Measured against an independently built rotate-then-halftone of the same image,
   the app agrees with it on **100%** of the image's pixels; the previous path agreed on **82.6%**.
 
-  As with 1.0.25, this is measured, not printed: a 300 DPI head is where the path changes and the
-  printer available is 203 DPI.
+  Measured, not printed — but not for the reason 1.0.25 gave. The scale fix needed a 300 DPI head;
+  this one engages **at any resolution**, so a photograph rotated off the right angles is halftoned
+  this way on the 203 DPI printer here as well, and *can* be checked on paper. The sentence that said
+  otherwise was carried over from the previous entry and was wrong; corrected after the v1.0.26
+  review pointed at it.
 - **A header containing a quote and a delimiter was read as a single column.** The delimiter sniffer
   skipped an escaped quote pair and then toggled its quote state anyway, so it believed it had left a
   quoted field while still inside one: it counted a semicolon that was inside quotes and ignored the

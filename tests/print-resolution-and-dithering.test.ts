@@ -259,6 +259,22 @@ describe('M4: an off-right-angle rotation is binarised in the orientation it pri
   });
 });
 
+/** Record rotate() and drawImage() calls in order, per context, so a transform can be checked. */
+function recordOps() {
+  const ops: { ctx: unknown; op: 'rotate' | 'draw'; angle?: number }[] = [];
+  const underlying = HTMLCanvasElement.prototype.getContext;
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement, ...args: unknown[]) {
+    const ctx = (underlying as (...a: unknown[]) => CanvasRenderingContext2D | null).apply(this, args);
+    if (ctx) {
+      ctx.rotate = ((a: number) => void ops.push({ ctx, op: 'rotate', angle: a })) as typeof ctx.rotate;
+      const real = ctx.drawImage.bind(ctx) as (...a: unknown[]) => void;
+      ctx.drawImage = ((...a: unknown[]) => { ops.push({ ctx, op: 'draw' }); real(...a); }) as typeof ctx.drawImage;
+    }
+    return ctx;
+  });
+  return ops;
+}
+
 /** Record every drawImage along with the smoothing setting in force when it was called. */
 function recordDraws() {
   const draws: { src: HTMLCanvasElement; smoothing: boolean | undefined }[] = [];
@@ -272,6 +288,62 @@ function recordDraws() {
   });
   return draws;
 }
+
+describe('G1: the rotation is pinned by direction, not only by size', () => {
+  // The v1.0.26 review found three ways to get the angle wrong that all passed this file: not
+  // cancelling the parent rotation (the image prints at twice the angle), baking with the opposite
+  // sign (it prints mirrored), and dropping the rotation from the cache key (two angles that share a
+  // bounding box are served each other's halftone). The tests here asserted the baked canvas's SIZE,
+  // which all three leave intact. Each assertion below is the one that dies for one of them.
+  const img = { naturalWidth: 4, naturalHeight: 4 } as HTMLImageElement;
+  const image = (rotation: number) => createImage('data:image/png;base64,AAAA', { width: 200, height: 120, rotation });
+  const rad = (deg: number) => (deg * Math.PI) / 180;
+
+  it('cancels the parent rotation before drawing, so the image is not turned twice', () => {
+    const ops = recordOps();
+    const label = document.createElement('canvas').getContext('2d')!;
+    drawElement(label, image(17), { ditherImages: true, scale: 1 });
+    const mine = ops.filter((o) => o.ctx === label);
+    const rotates = mine.filter((o) => o.op === 'rotate').map((o) => o.angle!);
+    // drawElement turns the element; the image draw turns it back before drawing.
+    expect(rotates).toHaveLength(2);
+    expect(rotates[0]).toBeCloseTo(rad(17), 10);
+    expect(rotates[1]).toBeCloseTo(-rad(17), 10);
+    expect(rotates[0] + rotates[1]).toBeCloseTo(0, 10);
+    const at = mine.findIndex((o) => o.op === 'draw');
+    expect(mine[at - 1]).toMatchObject({ op: 'rotate', angle: -rad(17) });
+  });
+
+  it('bakes the image turned the way the element asked, not the other way', () => {
+    const ops = recordOps();
+    ditherPreview(img, image(17), 1, true);
+    const drawCtx = ops.find((o) => o.op === 'draw')!.ctx;
+    const rotates = ops.filter((o) => o.ctx === drawCtx && o.op === 'rotate').map((o) => o.angle!);
+    expect(rotates).toHaveLength(1);
+    expect(rotates[0]).toBeCloseTo(rad(17), 10);   // +angle, in the same convention drawElement uses
+  });
+
+  it('does not serve one angle from another that shares its bounding box', () => {
+    // 17 and 163 degrees have the same box — the cosines and sines swap — so a key without the
+    // rotation returns the first halftone for the second, which is a mirrored photograph. The id is
+    // forced the same, or the element's own id would separate them anyway.
+    const el = { ...image(17), id: 'same-element' };
+    const a = ditherPreview(img, el, 1, true);
+    const b = ditherPreview(img, { ...el, rotation: 163 }, 1, true);
+    expect([a.width, a.height]).toEqual([b.width, b.height]);
+    expect(b).not.toBe(a);
+  });
+
+  it('keeps one rotation entry per element, so a drag cannot fill the cache', () => {
+    // G2: the cache limit counts entries, not bytes, and the largest halftone here is ~11 MB.
+    const el = { ...image(0), id: 'dragged-element' };
+    const first = ditherPreview(img, { ...el, rotation: 17 }, 1, true);
+    for (const angle of [30, 45, 60, 75]) ditherPreview(img, { ...el, rotation: angle }, 1, true);
+    // Back to 17: a fresh canvas means the earlier one was let go rather than kept alongside four
+    // more of the same element.
+    expect(ditherPreview(img, { ...el, rotation: 17 }, 1, true)).not.toBe(first);
+  });
+});
 
 const W = 40;
 const H = 40;
