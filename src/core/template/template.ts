@@ -244,7 +244,16 @@ function detectDelimiter(text: string): string {
   for (let i = 0; i < firstLine.length; i++) {
     const ch = firstLine[i];
     if (ch === '"') {
-      if (quoted && firstLine[i + 1] === '"') i++;
+      // An escaped quote inside a quoted field. It is skipped as a pair and the quote state does NOT
+      // change: toggling here walked the scanner out of quotes while it was still inside one, so a
+      // delimiter after the escape was counted as real and the ones inside the quotes were ignored.
+      // A header of a quote followed by a semicolon is enough to do it — the semicolon was counted,
+      // the commas were not, the sniffer chose the semicolon, and the header row came back as a
+      // single column.
+      if (quoted && firstLine[i + 1] === '"') {
+        i++;
+        continue;
+      }
       quoted = !quoted;
       continue;
     }

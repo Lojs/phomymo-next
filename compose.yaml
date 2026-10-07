@@ -36,11 +36,15 @@ services:
       - DAC_OVERRIDE
     security_opt:
       - no-new-privileges:true
-    # Writable scratch for a read-only root: nginx's temp paths and its pid file, and conf.d,
-    # because the entrypoint renders the config into /etc/nginx/conf.d/default.conf at startup. The
-    # template is copied to /usr/share/phomymo/ and deliberately NOT into conf.d — nginx loads every
-    # file in conf.d as a server config, so a template still holding ${PHOMYMO_DOMAIN} would make the
-    # config test fail at startup.
+    # Writable scratch for a read-only root: nginx's temp paths and its pid file, and conf.d, because
+    # the entrypoint renders the config into /etc/nginx/conf.d/default.conf at startup.
+    #
+    # conf.d is a tmpfs, which is the part that matters if this is ever "simplified": a tmpfs starts
+    # empty, so anything the image put there is hidden the moment it is mounted — including the stock
+    # default.conf — and the only config nginx sees is the one the entrypoint writes. Keeping the
+    # template in /usr/share/phomymo/ is what makes that safe: a file in conf.d is at the mercy of
+    # that mount. (nginx's include line is conf.d/*.conf, so a .template file would not be loaded
+    # anyway — but relying on that is relying on the filename, not on the mount.)
     tmpfs:
       - /var/cache/nginx:size=10m
       - /var/run:size=1m

@@ -198,6 +198,27 @@ describe('E3: the guard covers the header row, and a literal quote survives', ()
   });
 });
 
+describe('M2: a delimiter character hidden behind an escaped quote', () => {
+  it.each([
+    [['";', 'b', 'c']],
+    [['a";', 'b']],
+    [['";', 'b']],
+  ])('reads the header row back whole: %j', (headers) => {
+    // The sniffer skipped the escaped pair and then toggled `quoted` anyway, so it believed it was
+    // outside the quoted field: it counted the semicolon as a delimiter and ignored the commas, which
+    // are the real ones, because they sat inside quotes. It chose the semicolon and the three columns
+    // came back as one. The fuzzing round did not reach this — its alphabet never put a quote and a
+    // delimiter in the same header.
+    expect(parseCSV(toCSV(headers as string[], [] as never)).headers).toEqual(headers);
+  });
+
+  it('still reads a plain comma file, and a real semicolon file', () => {
+    // The fix must not make the sniffer blind to a delimiter that is genuinely outside quotes.
+    expect(parseCSV('a,b\nc,d\n').headers).toEqual(['a', 'b']);
+    expect(parseCSV('a;b\nc;d\n').headers).toEqual(['a', 'b']);
+  });
+});
+
 describe('a damaged saved design is repaired on load, not handed to the renderer', () => {
   const storage = () => import('../src/core/storage/storage');
 

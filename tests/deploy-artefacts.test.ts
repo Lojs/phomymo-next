@@ -329,3 +329,38 @@ describe('the certificate entrypoint', () => {
     expect(ep).toMatch(/PHOMYMO_REDIRECT_PORT/);
   });
 });
+
+describe('the release gates CI applies', () => {
+  const workflow = read('.github/workflows/docker-publish.yml');
+
+  it('fails on a runtime advisory and only reports a dev-only one', () => {
+    // M5: nothing asserted this line, so weakening it to --audit-level=critical left the suite green.
+    // A runtime advisory is a release blocker; one that reaches only the test tooling is not, and
+    // `npm audit` mixed the two until they were split.
+    expect(workflow).toMatch(/npm audit --omit=dev --audit-level=high/);
+  });
+
+  it('keeps the full audit informational rather than fatal', () => {
+    // It exists to print what --omit=dev ignores, not to block a release over a build-only package.
+    // Looked at as a step rather than by searching the whole file, so an unrelated continue-on-error
+    // somewhere else cannot satisfy this.
+    const bare = workflow.lastIndexOf('run: npm audit');
+    expect(bare).toBeGreaterThan(-1);
+    const step = workflow.slice(workflow.lastIndexOf('- name:', bare), bare);
+    expect(step).toContain('continue-on-error: true');
+  });
+
+  it('the lockfile agrees with package.json about the version', () => {
+    // M6: the lockfile's own version field drifted — it said 1.0.24 while package.json said 1.0.25 —
+    // because bumping the version does not rewrite it. Harmless to `npm ci`, and confusing to anyone
+    // who reads the lockfile to find out what is pinned. A bump is a one-line edit; this keeps it one.
+    const pkg = JSON.parse(read('package.json')) as { version: string };
+    const lock = JSON.parse(read('package-lock.json')) as {
+      version: string;
+      packages: Record<string, { version?: string }>;
+    };
+    expect(lock.version).toBe(pkg.version);
+    expect(lock.packages['']?.version).toBe(pkg.version);
+  });
+});
+

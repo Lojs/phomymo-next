@@ -147,20 +147,6 @@ describe('N1: an image is binarised at the resolution it will print at', () => {
   const img = { naturalWidth: 4, naturalHeight: 4 } as HTMLImageElement;
   const image = () => createImage('data:image/png;base64,AAAA', { width: 200, height: 120 });
 
-  /** Record every drawImage along with the smoothing setting in force when it was called. */
-  function recordDraws() {
-    const draws: { src: HTMLCanvasElement; smoothing: boolean | undefined }[] = [];
-    const underlying = HTMLCanvasElement.prototype.getContext;
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement, ...args: unknown[]) {
-      const ctx = (underlying as (...a: unknown[]) => CanvasRenderingContext2D | null).apply(this, args);
-      if (ctx) {
-        ctx.drawImage = ((src: HTMLCanvasElement) => void draws.push({ src, smoothing: ctx.imageSmoothingEnabled })) as typeof ctx.drawImage;
-      }
-      return ctx;
-    });
-    return draws;
-  }
-
   it('binarises at the label grid for a 203 DPI head', () => {
     const cv = ditherPreview(img, image(), rasterScale(203));
     expect(cv.width).toBe(200);
@@ -186,6 +172,16 @@ describe('N1: an image is binarised at the resolution it will print at', () => {
     expect(ditherPreview(img, el, 1).width).toBe(200);
   });
 
+  it('reaches that device size through renderPixels, not only through drawElement', () => {
+    // M1: this is the line that carries the scale from renderPixels() into the draw, and nothing
+    // checked it. Deleting `scale` from the options object left the whole suite green — every image
+    // would go back to being binarised at the label grid on a 300 DPI head, silently.
+    const draws = recordDraws();
+    renderPixels([image()], layout(), rasterScale(300));
+    expect(draws.length).toBeGreaterThan(0);
+    expect(draws[draws.length - 1].src.width).toBe(Math.round(200 * rasterScale(300)));
+  });
+
   it('draws it at the device size, with smoothing off', () => {
     const draws = recordDraws();
     const ctx = document.createElement('canvas').getContext('2d')!;
@@ -207,6 +203,75 @@ describe('N1: an image is binarised at the resolution it will print at', () => {
     expect(draws[1].src.height).toBe(120);
   });
 });
+describe('M4: an off-right-angle rotation is binarised in the orientation it prints in', () => {
+  // jsdom cannot show moire, so what is pinned is the mechanism that avoids it: for an angle that is
+  // not a multiple of 90 the halftone is made from the rotated image, in a canvas large enough to
+  // hold it, and the draw cancels the parent rotation. Rendering it showed the difference — the
+  // drawn-rotated version had vertical columnar banding and clumped dots through the midtones.
+  const img = { naturalWidth: 4, naturalHeight: 4 } as HTMLImageElement;
+  const image = (rotation: number) => createImage('data:image/png;base64,AAAA', { width: 200, height: 120, rotation });
+  const bounds = (angle: number) => {
+    const rad = (angle * Math.PI) / 180;
+    return {
+      w: Math.ceil(Math.abs(200 * Math.cos(rad)) + Math.abs(120 * Math.sin(rad))),
+      h: Math.ceil(Math.abs(200 * Math.sin(rad)) + Math.abs(120 * Math.cos(rad))),
+    };
+  };
+
+  it('bakes a free angle into a canvas that holds the rotated image', () => {
+    const cv = ditherPreview(img, image(17), 1, true);
+    expect(cv.width).toBe(bounds(17).w);
+    expect(cv.height).toBe(bounds(17).h);
+    expect(cv.width).toBeGreaterThan(200);
+  });
+
+  it('does not bake a right angle, which maps pixels exactly', () => {
+    // 90, 180 and 270 turn a pixel grid onto itself, so the halftone can be made unrotated.
+    for (const angle of [0, 90, 180, 270]) {
+      const cv = ditherPreview(img, image(angle), 1, false);
+      expect([cv.width, cv.height]).toEqual([200, 120]);
+    }
+  });
+
+  it('draws a free angle from the baked halftone', () => {
+    const draws = recordDraws();
+    const ctx = document.createElement('canvas').getContext('2d')!;
+    drawElement(ctx, image(17), { ditherImages: true, scale: 1 });
+    expect(draws[draws.length - 1].src.width).toBe(bounds(17).w);
+  });
+
+  it('draws a right angle from the unrotated halftone, exactly as before', () => {
+    const draws = recordDraws();
+    const ctx = document.createElement('canvas').getContext('2d')!;
+    drawElement(ctx, image(90), { ditherImages: true, scale: 1 });
+    expect(draws[draws.length - 1].src.width).toBe(200);
+    expect(draws[draws.length - 1].src.height).toBe(120);
+  });
+
+  it('keeps two rotations of the same element apart in the cache', () => {
+    // The key used to ignore rotation entirely, which was harmless while the halftone did not depend
+    // on it. It does now, so a 17 degree entry must not answer for a 0 degree one.
+    const el = { ...image(0), id: 'same-element' };
+    const straight = ditherPreview(img, el, 1, false);
+    const turned = ditherPreview(img, { ...el, rotation: 17 }, 1, true);
+    expect(straight.width).toBe(200);
+    expect(turned.width).toBe(bounds(17).w);
+  });
+});
+
+/** Record every drawImage along with the smoothing setting in force when it was called. */
+function recordDraws() {
+  const draws: { src: HTMLCanvasElement; smoothing: boolean | undefined }[] = [];
+  const underlying = HTMLCanvasElement.prototype.getContext;
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement, ...args: unknown[]) {
+    const ctx = (underlying as (...a: unknown[]) => CanvasRenderingContext2D | null).apply(this, args);
+    if (ctx) {
+      ctx.drawImage = ((src: HTMLCanvasElement) => void draws.push({ src, smoothing: ctx.imageSmoothingEnabled })) as typeof ctx.drawImage;
+    }
+    return ctx;
+  });
+  return draws;
+}
 
 const W = 40;
 const H = 40;

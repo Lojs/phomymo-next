@@ -189,27 +189,46 @@ export function resolveImageMode(px: Uint8ClampedArray, w: number, h: number, de
  * `scale` is the device scale. The cache key is built from the resulting pixel dimensions rather
  * than the element's size, so a 203 DPI render and a 300 DPI render of the same element cannot
  * share an entry — which is what would happen if the key used `el.width` and the scale were only
- * applied afterwards.
+ * applied afterwards. It carries the rotation too, because with `bakeRotation` the halftone itself
+ * depends on the angle.
+ *
+ * `bakeRotation` applies the element's rotation to the image before it is binarised, into a canvas
+ * big enough to hold the result, for the angles where drawing it rotated afterwards would resample.
+ * See drawImage().
  */
-export function ditherPreview(img: HTMLImageElement, el: ImageElement, scale = 1): HTMLCanvasElement {
+export function ditherPreview(img: HTMLImageElement, el: ImageElement, scale = 1, bakeRotation = false): HTMLCanvasElement {
   const w = Math.max(1, Math.round(el.width * scale));
   const h = Math.max(1, Math.round(el.height * scale));
-  const key = `${el.id}|${el.imageData.length}|${w}|${h}|${el.dither ?? 'auto'}|${el.brightness || 0}|${el.contrast || 0}`;
+  const angle = bakeRotation ? ((el.rotation || 0) * Math.PI) / 180 : 0;
+  // The axis-aligned box the rotated image needs. Unrotated this is exactly w x h.
+  const cw = angle ? Math.ceil(Math.abs(w * Math.cos(angle)) + Math.abs(h * Math.sin(angle))) : w;
+  const ch = angle ? Math.ceil(Math.abs(w * Math.sin(angle)) + Math.abs(h * Math.cos(angle))) : h;
+  const key = `${el.id}|${el.imageData.length}|${cw}|${ch}|${el.dither ?? 'auto'}|${el.brightness || 0}|${el.contrast || 0}|${el.rotation || 0}`;
   const hit = ditherCache.get(key);
   if (hit) return hit;
 
   const cv = document.createElement('canvas');
-  cv.width = w;
-  cv.height = h;
+  cv.width = cw;
+  cv.height = ch;
   const c = cv.getContext('2d', { willReadFrequently: true })!;
   const f = imageFilterString(el);
   if (f) c.filter = f;
-  c.drawImage(img, 0, 0, w, h);
+  if (angle) {
+    c.translate(cw / 2, ch / 2);
+    c.rotate(angle);
+    c.drawImage(img, -w / 2, -h / 2, w, h);
+  } else {
+    c.drawImage(img, 0, 0, w, h);
+  }
   c.filter = 'none';
-  const data = c.getImageData(0, 0, w, h);
-  const mode = resolveImageMode(data.data, w, h, el.dither);
-  const gray = rgbaToGrayscale(data.data, w, h, 1.3);
-  const bits = mode === 'none' ? thresholdGray(gray) : mode === 'atkinson' ? atkinson(gray, w, h) : mode === 'ordered' ? ordered(gray, w, h) : floydSteinberg(gray, w, h);
+  const data = c.getImageData(0, 0, cw, ch);
+  // Resolved from the canvas that will be binarised, so a rotated image is judged in the orientation
+  // it prints in. Worth knowing: the ported heuristic samples on a stride derived from the canvas
+  // size, so its verdict for a synthetic gradient can change with the size. A photograph carries
+  // enough distinct colour to be dithered at any size, which is the case this decides.
+  const mode = resolveImageMode(data.data, cw, ch, el.dither);
+  const gray = rgbaToGrayscale(data.data, cw, ch, 1.3);
+  const bits = mode === 'none' ? thresholdGray(gray) : mode === 'atkinson' ? atkinson(gray, cw, ch) : mode === 'ordered' ? ordered(gray, cw, ch) : floydSteinberg(gray, cw, ch);
   for (let i = 0; i < bits.length; i++) {
     const v = bits[i] ? 0 : 255;
     data.data[i * 4] = data.data[i * 4 + 1] = data.data[i * 4 + 2] = v;
@@ -226,12 +245,27 @@ function drawImage(ctx: Ctx, el: ImageElement, width: number, height: number, op
   const img = getImage(el.imageData);
   if (!img || !img.naturalWidth) return;
   if (opts.ditherImages) {
+    const scale = opts.scale ?? 1;
+    const angle = el.rotation || 0;
+    // A right-angle turn maps pixels exactly, so the halftone can be made unrotated and turned when
+    // it is drawn. Any other angle resamples, and resampling a 1-bit image by nearest neighbour is
+    // what turns a halftone into moire: on a photograph rotated 17 degrees the drawn-rotated version
+    // showed jagged dot clumps and vertical columnar banding through the midtones, where binarising
+    // the rotated image gave clean isotropic dots. So for those angles the rotation is applied to
+    // the image first and the draw below cancels the parent rotation.
+    const bake = angle % 90 !== 0;
+    const halftone = ditherPreview(img, el, scale, bake);
     ctx.save();
-    // No smoothing. The halftone is already at device resolution, so this draw maps it 1:1 onto
-    // device pixels; interpolating a 1-bit image spreads each dot over its neighbours' grey and the
-    // threshold that follows turns those greys into clumps. See DrawOptions.scale.
+    // No smoothing either way. The halftone is already at device resolution, so this draw maps it 1:1
+    // onto device pixels; interpolating a 1-bit image spreads each dot over its neighbours' grey and
+    // the threshold that follows turns those greys into clumps. See DrawOptions.scale.
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(ditherPreview(img, el, opts.scale ?? 1), -width / 2, -height / 2, width, height);
+    if (bake) {
+      ctx.rotate(-(angle * Math.PI) / 180);
+      ctx.drawImage(halftone, -halftone.width / (2 * scale), -halftone.height / (2 * scale), halftone.width / scale, halftone.height / scale);
+    } else {
+      ctx.drawImage(halftone, -width / 2, -height / 2, width, height);
+    }
     ctx.restore();
     return;
   }
