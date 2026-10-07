@@ -8,6 +8,35 @@ actually does now.
 The commits are the source of truth for anything more granular. Commit messages in this repository
 carry the reasoning in full; this file is the index.
 
+## 1.0.27
+
+### Fixed
+- **The tests for the rotated-image fix checked size, not direction.** Three edits to that block
+  passed the whole suite: deleting the draw's rotation cancellation, so the baked image is turned
+  again by the parent and prints at twice the angle; baking with the opposite sign, so it prints
+  mirrored; and dropping the rotation from the cache key, where two angles that share a bounding box
+  (17 and 163 degrees) then serve each other's halftone. All three were reproduced and all three are
+  killed now, each by the assertion written for it: the transform calls on the label context, the
+  transform on the baking canvas, and a same-id pair of angles with the same size that must not share
+  a canvas.
+- **Rotating an image produced a new halftone and a new cache entry per step**, and the cache limit
+  counts entries rather than bytes. Measured with the app's own functions, one halftone costs 7 ms at
+  460x330, 37 ms at 1182x1182 and 72 ms at 1182x2365 in node, with a browser adding the canvas work
+  on top — and the largest canvas is about 11 MB, so fifty entries is roughly half a gigabyte held
+  for an element the user is only turning. Inserting a halftone now drops that element's earlier ones.
+- **A wrong caveat in the 1.0.26 entry.** It said the rotation path changes only on a 300 DPI head,
+  carried over from 1.0.25 and not true of this change: the rotated halftone is made at whatever
+  resolution is being rendered, so a photograph rotated off the right angles exercises it on a 203
+  DPI head as well. Corrected here and in that release's published notes.
+
+### Notes
+- The review also suggested debouncing the on-screen preview while the rotation slider is held. Left
+  out: with one cache entry per element the memory is bounded, and a debounce would add a state
+  machine to the preview for a stutter that is now occasional.
+- The mode for a rotated image is still resolved from the rotated canvas, whose corners are
+  transparent and read as white. For a photograph the verdict does not change; the code comment says
+  the heuristic can vary with canvas size, and this is that.
+
 ## 1.0.26
 
 ### Fixed
