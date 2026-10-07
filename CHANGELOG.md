@@ -8,6 +8,46 @@ actually does now.
 The commits are the source of truth for anything more granular. Commit messages in this repository
 carry the reasoning in full; this file is the index.
 
+## 1.0.26
+
+### Fixed
+- **A photograph rotated to any angle other than a right angle printed with moiré.** An image was
+  halftoned unrotated at device resolution and then drawn under a rotation. At 0, 90, 180 and 270
+  degrees that maps pixels exactly, but at any other angle the browser resamples a 1-bit image by
+  nearest neighbour, which turns a halftone into interference: rendered at 17 degrees on a
+  photograph, the previous path showed jagged dot clumps and vertical columnar banding through the
+  midtones.
+
+  For those angles the image is now rotated *before* it is halftoned, and the draw cancels the
+  parent rotation. Measured against an independently built rotate-then-halftone of the same image,
+  the app agrees with it on **100%** of the image's pixels; the previous path agreed on **82.6%**.
+
+  As with 1.0.25, this is measured, not printed: a 300 DPI head is where the path changes and the
+  printer available is 203 DPI.
+- **A header containing a quote and a delimiter was read as a single column.** The delimiter sniffer
+  skipped an escaped quote pair and then toggled its quote state anyway, so it believed it had left a
+  quoted field while still inside one: it counted a semicolon that was inside quotes and ignored the
+  commas that were not, chose the semicolon, and collapsed the header row. Old code — the fuzzing
+  round missed it because its alphabet never put a quote and a delimiter in one header.
+
+### Changed
+- **Two gates that a release depends on now have tests, because removing them changed nothing.** The
+  line that carries the render scale into an image draw could be deleted with the whole suite still
+  passing, which would have silently put every image back on the 203 DPI grid on a 300 DPI head; and
+  weakening the CI audit level to `critical` did the same. Both now fail.
+- **`package-lock.json`'s version field is kept in step with `package.json`.** It had drifted to
+  1.0.24 behind 1.0.25, because bumping the version does not rewrite it — harmless to `npm ci`, and
+  misleading to anyone reading the lockfile to find out what is pinned.
+
+### Notes
+- A comment in `compose.yaml` gave the wrong reason for keeping the nginx template outside `conf.d`:
+  nginx's include line is `conf.d/*.conf`, so a `.template` file there would not be loaded at all. The
+  reason that matters is the `tmpfs` mounted over `conf.d` — it starts empty, so anything the image
+  put there is hidden by the mount. The comment now says that, and keeps the accurate half as a
+  footnote rather than as the reason.
+- The CI audit gate still depends on the registry's advisory service, so an outage there can fail a
+  release for an unrelated reason. Left as is: a trade-off worth revisiting only if it actually bites.
+
 ## 1.0.25
 
 ### Fixed
